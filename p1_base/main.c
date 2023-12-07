@@ -9,12 +9,14 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <pthread.h>
 
 #include "constants.h"
 #include "operations.h"
 #include "parser.h"
 
 #define MAX_PROC 5
+#define MAX_THREADS 3
 
 char* pathingOut(const char *directoryPath, struct dirent *entry) {
     const char *extension_to_remove = ".jobs";
@@ -52,9 +54,14 @@ int process_file(char* pathJobs, char* pathOut) {
 
   int fdRead = open(pathJobs, O_RDONLY);
   int fdWrite = open(pathOut, O_CREAT | O_TRUNC | O_WRONLY , S_IRUSR | S_IWUSR);
-  
+
+  /*
+  pthread_t threads[MAX_THREADS];
+  int threadIndex = 0;
+  */
+
 while (1) {
-     unsigned int event_id, delay;
+  unsigned int event_id, delay;
   size_t num_rows, num_columns, num_coords;
   size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
   
@@ -91,9 +98,21 @@ while (1) {
           continue;
         }
 
+        /*
+        if (threadIndex >= MAX_THREADS) {
+          // Aguardar até que uma thread termine antes de criar uma nova
+          pthread_join(threads[threadIndex], NULL);
+        }
+        */
+
         if (ems_show(event_id, fdWrite)) {
           fprintf(stderr, "Failed to show event\n");
         }
+
+        /*
+        threadIndex++;
+        if (threadIndex == MAX_THREADS) threadIndex = 0;
+        */
 
         break;
 
@@ -140,6 +159,8 @@ while (1) {
 
       case EOC:
         ems_terminate();
+        close(fdRead);
+        close(fdWrite);
         return 0;
     }
   }
