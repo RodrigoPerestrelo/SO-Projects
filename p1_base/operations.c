@@ -5,32 +5,16 @@
 
 #include "eventlist.h"
 #include "teste.h"
+#include "main.h"
+
 
 
 #define BUFFERSIZE 1024
 #define IDMAX 128
 
-#define MAX_THREADS 3
-#define MAX_RESERVATION_SIZE 100
-
-
-typedef struct {
-  int thread_active_array[MAX_THREADS];
-  int thread_index;
-  int active_threads;
-  int file_descriptor;
-  unsigned int event_id;
-  unsigned int delay;
-  size_t num_rows;
-  size_t num_columns;
-  size_t num_coords;
-  size_t xs[MAX_RESERVATION_SIZE];
-  size_t ys[MAX_RESERVATION_SIZE];
-} ThreadParameters;
-
-pthread_rwlock_t rwlock;
 static struct EventList* event_list = NULL;
 static unsigned int state_access_delay_ms = 0;
+pthread_rwlock_t rwlock;
 
 /// Calculates a timespec from a delay in milliseconds.
 /// @param delay_ms Delay in milliseconds.
@@ -190,11 +174,14 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
 
 void ems_show(void* args) { // adicionar um fd
 
-  pthread_rwlock_rdlock(&rwlock);
-
   ThreadParameters* parameters = (ThreadParameters*)args;
-  unsigned int event_id = parameters->event_id;
-  int fdWrite = parameters->file_descriptor;
+  parameters->active_threads--;
+  /*int fdWrite = parameters->file_descriptor;
+  rwlock = parameters->rwlock;
+  */
+  printf("--------------------\n");
+  /*
+  pthread_rwlock_rdlock(&rwlock);
 
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
@@ -239,6 +226,7 @@ for (size_t i = 1; i <= event->rows; i++) {
 
   pthread_rwlock_unlock(&rwlock);
   pthread_exit(NULL);
+  */
   return;
 }
 

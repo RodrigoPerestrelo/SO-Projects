@@ -11,34 +11,12 @@
 #include <sys/wait.h>
 #include <pthread.h>
 
-#include "constants.h"
 #include "operations.h"
 #include "parser.h"
-
+#include "main.h"
 
 int global_num_proc = 0;
 int global_num_threads = 0;
-
-typedef struct {
-  //int thread_active_array[MAX_THREADS];
-  int thread_index;
-  int active_threads;
-  int file_descriptor;
-  unsigned int event_id;
-  unsigned int delay;
-  size_t num_rows;
-  size_t num_columns;
-  size_t num_coords;
-  size_t xs[MAX_RESERVATION_SIZE];
-  size_t ys[MAX_RESERVATION_SIZE];
-} ThreadParameters;
-
-
-int iterateFiles(char* directoryPath);
-char* pathingOut(const char *directoryPath, struct dirent *entry);
-char *pathingJobs(char *directoryPath, struct dirent *entry);
-int process_file(char* pathJobs, char* pathOut);
-
 
 /* Função main que faz o processamento dos argumentos e chama as funções que fazem o processamento dos ficheiros */
 int main(int argc, char *argv[]) {
@@ -90,7 +68,7 @@ int main(int argc, char *argv[]) {
 /* Função que itera sobre os ficheiros de uma diretoria */
 int iterateFiles(char* directoryPath) {
   DIR *dir;
-  struct dirent *entry;
+  file *entry;
 
   if ((dir = opendir(directoryPath)) == NULL) {
       perror("Error opening directory");
@@ -183,131 +161,158 @@ int process_file(char* pathJobs, char* pathOut) {
   int fdRead = open(pathJobs, O_RDONLY);
   int fdWrite = open(pathOut, O_CREAT | O_TRUNC | O_WRONLY , S_IRUSR | S_IWUSR);
 
-  //pthread_t threads[global_num_threads];
-
-  ThreadParameters parameters;
-  parameters.active_threads = 0;
-  parameters.thread_index = 0;
-  for (int i = 0; i < global_num_threads; i++) {
-    //parameters.thread_active_array[i] = 0;
-  }
-
+  pthread_t threads[global_num_threads];
+  ThreadParameters *parameters = createThreadParameters(fdWrite);
 
   while (1) {
     unsigned int event_id, delay;
     size_t num_rows, num_columns, num_coords;
     size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
-    if (parameters.active_threads < global_num_threads) {
+    if (parameters->active_threads < global_num_threads) {
 
-      parameters.thread_index = -1;
+      parameters->thread_index = -1;
       for (int i = 0; i < global_num_threads; ++i) {
-        //if (!parameters.thread_active_array[i]) {
-         //   parameters.thread_index = i;
-            //break;
-        //}
+        if (!parameters->thread_active_array[i]) {
+          parameters->thread_index = i;
+          break;
+        }
       }
 
       switch (get_next(fdRead)) {
-          case CMD_CREATE:
-            if (parse_create(fdRead, &event_id, &num_rows, &num_columns) != 0) {
-              fprintf(stderr, "Invalid command. See HELP for usage\n");
-              continue;
-            }          
-
-            if (ems_create(event_id, num_rows, num_columns)) {
-              fprintf(stderr, "Failed to create event\n");
-            }
-
-            break;
-
-          case CMD_RESERVE:
-            num_coords = parse_reserve(fdRead, MAX_RESERVATION_SIZE, &event_id, xs, ys);
-
-            if (num_coords == 0) {
-              fprintf(stderr, "Invalid command. See HELP for usage\n");
-              continue;
-            }
-
-            if (ems_reserve(event_id, num_coords, xs, ys)) {
-              fprintf(stderr, "Failed to reserve seats\n");
-            }
-
-            break;
-
-          case CMD_SHOW:
-            if (parse_show(fdRead, &event_id) != 0) {
-              fprintf(stderr, "Invalid command. See HELP for usage\n");
-              continue;
-            }
-
-            parameters.event_id = event_id;
-            parameters.file_descriptor = fdWrite;
-
-            //pthread_create(&threads[parameters.thread_index], NULL, ems_show, (void*)&parameters);
-            //parameters.active_threads++;
-            //parameters.thread_active_array[parameters.thread_index] = 1;
-
-            break;
-
-          case CMD_LIST_EVENTS:
-            if (ems_list_events(fdWrite)) {
-              fprintf(stderr, "Failed to list events\n");
-            }
-
-            break;
-
-          case CMD_WAIT:
-            if (parse_wait(fdRead, &delay, NULL) == -1) {  // thread_id is not implemented
-              fprintf(stderr, "Invalid command. See HELP for usage\n");
-              continue;
-            }
-
-            if (delay > 0) {
-              printf("Waiting...\n");
-              ems_wait(delay);
-            }
-
-            break;
-
-          case CMD_INVALID:
+        case CMD_CREATE:
+          if (parse_create(fdRead, &event_id, &num_rows, &num_columns) != 0) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
-            break;
+            continue;
+          }          
 
-          case CMD_HELP:
-            printf(
-                "Available commands:\n"
-                "  CREATE <event_id> <num_rows> <num_columns>\n"
-                "  RESERVE <event_id> [(<x1>,<y1>) (<x2>,<y2>) ...]\n"
-                "  SHOW <event_id>\n"
-                "  LIST\n"
-                "  WAIT <delay_ms> [thread_id]\n"  // thread_id is not implemented
-                "  BARRIER\n"                      // Not implemented
-                "  HELP\n");
+          if (ems_create(event_id, num_rows, num_columns)) {
+            fprintf(stderr, "Failed to create event\n");
+          }
 
-            break;
+          break;
 
-          case CMD_BARRIER:  // Not implemented
-          case CMD_EMPTY:
-            break;
+        case CMD_RESERVE:
+          num_coords = parse_reserve(fdRead, MAX_RESERVATION_SIZE, &event_id, xs, ys);
 
-          case EOC:
-            for (int i = 0; i < global_num_threads; i++) {
-              //if (parameters.thread_active_array[i]) {
-                //pthread_join(threads[i], NULL);
-                //parameters.thread_active_array[i] = 0;
-                //parameters.active_threads--;
-              //}
+          if (num_coords == 0) {
+            fprintf(stderr, "Invalid command. See HELP for usage\n");
+            continue;
+          }
+
+          if (ems_reserve(event_id, num_coords, xs, ys)) {
+            fprintf(stderr, "Failed to reserve seats\n");
+          }
+
+          break;
+
+        case CMD_SHOW:
+          if (parse_show(fdRead, &event_id) != 0) {
+            fprintf(stderr, "Invalid command. See HELP for usage\n");
+            continue;
+          }
+
+          parameters->event_id = event_id;
+          parameters->file_descriptor = fdWrite;
+
+          pthread_create(&threads[parameters->thread_index], NULL, ems_show, (void*)&parameters);
+          parameters->active_threads++;
+          parameters->thread_active_array[parameters->thread_index] = 1;
+
+          break;
+
+        case CMD_LIST_EVENTS:
+          if (ems_list_events(fdWrite)) {
+            fprintf(stderr, "Failed to list events\n");
+          }
+
+          break;
+
+        case CMD_WAIT:
+          if (parse_wait(fdRead, &delay, NULL) == -1) {  // thread_id is not implemented
+            fprintf(stderr, "Invalid command. See HELP for usage\n");
+            continue;
+          }
+
+          if (delay > 0) {
+            printf("Waiting...\n");
+            ems_wait(delay);
+          }
+
+          break;
+
+        case CMD_INVALID:
+          fprintf(stderr, "Invalid command. See HELP for usage\n");
+          break;
+
+        case CMD_HELP:
+          printf(
+              "Available commands:\n"
+              "  CREATE <event_id> <num_rows> <num_columns>\n"
+              "  RESERVE <event_id> [(<x1>,<y1>) (<x2>,<y2>) ...]\n"
+              "  SHOW <event_id>\n"
+              "  LIST\n"
+              "  WAIT <delay_ms> [thread_id]\n"  // thread_id is not implemented
+              "  BARRIER\n"                      // Not implemented
+              "  HELP\n");
+
+          break;
+
+        case CMD_BARRIER:  // Not implemented
+        case CMD_EMPTY:
+          break;
+
+        case EOC:
+          for (int i = 0; i < global_num_threads; i++) {
+            if (parameters->thread_active_array[i]) {
+              pthread_join(threads[i], NULL);
+              parameters->thread_active_array[i] = 0;
+              parameters->active_threads--;
             }
+          }
 
-            ems_terminate();
-            close(fdRead);
-            close(fdWrite);
-            return 0;
+          ems_terminate();
+          destroyThreadParameters(parameters);
+          close(fdRead);
+          close(fdWrite);
+          return 0;
       }
     }
   }
-
-  
   return 0;
+}
+
+ThreadParameters *createThreadParameters(int fdWrite) {
+  ThreadParameters *params = (ThreadParameters *)malloc(sizeof(ThreadParameters));
+
+  // Inicialize os campos conforme necessário
+  params->thread_index = 0; // Inicialize conforme necessário
+  params->active_threads = 0; // Inicialize conforme necessário
+  params->file_descriptor = fdWrite; // Inicialize conforme necessário
+  pthread_rwlock_init(&params->rwlock, NULL);
+
+  // Aloque memória para thread_active_array e inicialize conforme necessário
+  params->thread_active_array = (int *)malloc((size_t)global_num_threads * sizeof(int));
+
+
+  if (params->thread_active_array == NULL) {
+      fprintf(stderr, "Erro ao alocar memória para thread_active_array\n");
+      free(params);
+      exit(EXIT_FAILURE); // Ou trate o erro de outra maneira
+  } else {
+    for (int i = 0; i < global_num_threads; i++) {
+      params->thread_active_array[i] = 0;
+    }
+  }
+
+  return params;
+}
+
+void destroyThreadParameters(ThreadParameters *params) {
+  // Libere a memória alocada
+  if (params != NULL) {
+    free(params->thread_active_array);
+    pthread_rwlock_destroy(&params->rwlock);
+    free(params);
+  }
 }
