@@ -174,32 +174,30 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
 
 void ems_show(void* args) { // adicionar um fd
 
-  ThreadParameters* parameters = (ThreadParameters*)args;
-  parameters->active_threads--;
-  /*int fdWrite = parameters->file_descriptor;
-  rwlock = parameters->rwlock;
-  */
-  printf("--------------------\n");
-  /*
+  ThreadParameters **parameters = (ThreadParameters**)args;
+  unsigned int event_id = (*parameters)->event_id;
+  int fdWrite = (*parameters)->file_descriptor;
+  rwlock = (*parameters)->rwlock;
+
   pthread_rwlock_rdlock(&rwlock);
 
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
-    parameters->thread_active_array[parameters->thread_index] = 0;
-    parameters->active_threads--;
+    (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
+    (*parameters)->active_threads--;
     return;
   }
 
-  struct Event* event = get_event_with_delay(event_id);
+  struct Event *event = get_event_with_delay(event_id);
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
-    parameters->thread_active_array[parameters->thread_index] = 0;
-    parameters->active_threads--;
+    (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
+    (*parameters)->active_threads--;
     return;
   }
 
-char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 1);
+char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 2);
 char *current = buffer;  // Ponteiro auxiliar para rastrear a posição atual
 
 for (size_t i = 1; i <= event->rows; i++) {
@@ -217,16 +215,18 @@ for (size_t i = 1; i <= event->rows; i++) {
     current += newline_written;
   }
 
-  *current = '\0';  // Adicionar terminador nulo no final do buffer
+  *current = '\n';  // Adicionar terminador nulo no final do buffer
+  current++;
+  *current = '\0';
   writeFile(fdWrite, buffer);
   free(buffer);
 
-  parameters->thread_active_array[parameters->thread_index] = 0;
-  parameters->active_threads--;
+  (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
+  (*parameters)->active_threads--;
 
   pthread_rwlock_unlock(&rwlock);
   pthread_exit(NULL);
-  */
+
   return;
 }
 
