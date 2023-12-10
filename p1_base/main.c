@@ -160,6 +160,8 @@ int process_file(char* pathJobs, char* pathOut) {
 
   int fdRead = open(pathJobs, O_RDONLY);
   int fdWrite = open(pathOut, O_CREAT | O_TRUNC | O_WRONLY , S_IRUSR | S_IWUSR);
+  int line = 1;
+  unsigned int thread_id = 0;
 
   pthread_t threads[global_num_threads];
   ThreadParameters *parameters = createThreadParameters(fdWrite);
@@ -170,6 +172,13 @@ int process_file(char* pathJobs, char* pathOut) {
     size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
     if (parameters->active_threads < global_num_threads) {
+      sleep(1); //sem isto dá erros
+
+      if (line == (int)thread_id && delay > 0) {
+        printf("Waiting... com thread ID\n");
+        ems_wait(delay);
+        thread_id = 0;
+      }
 
       parameters->thread_index = -1;
       for (int i = 0; i < global_num_threads; ++i) {
@@ -191,6 +200,7 @@ int process_file(char* pathJobs, char* pathOut) {
           parameters->num_columns = num_columns;
 
           pthread_create(&threads[parameters->thread_index], NULL, ems_create, (void*)&parameters);
+          line++;
           parameters->active_threads++;
           parameters->thread_active_array[parameters->thread_index] = 1;
 
@@ -210,14 +220,9 @@ int process_file(char* pathJobs, char* pathOut) {
           parameters->ys = ys;
 
           pthread_create(&threads[parameters->thread_index], NULL, ems_reserve, (void*)&parameters);
+          line++;
           parameters->active_threads++;
           parameters->thread_active_array[parameters->thread_index] = 1;
-
-          /*
-          if (ems_reserve(event_id, num_coords, xs, ys)) {
-            fprintf(stderr, "Failed to reserve seats\n");
-          }
-          */
 
           break;
 
@@ -226,11 +231,11 @@ int process_file(char* pathJobs, char* pathOut) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-
           parameters->event_id = event_id;
           parameters->file_descriptor = fdWrite;
 
           pthread_create(&threads[parameters->thread_index], NULL, ems_show, (void*)&parameters);
+          line++;
           parameters->active_threads++;
           parameters->thread_active_array[parameters->thread_index] = 1;
 
@@ -244,12 +249,11 @@ int process_file(char* pathJobs, char* pathOut) {
           break;
 
         case CMD_WAIT:
-          if (parse_wait(fdRead, &delay, NULL) == -1) {  // thread_id is not implemented
+          if (parse_wait(fdRead, &delay, &thread_id) == -1) {  // thread_id is not implemented
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-
-          if (delay > 0) {
+          if (delay > 0 && thread_id == 0) {
             printf("Waiting...\n");
             ems_wait(delay);
           }
@@ -273,7 +277,13 @@ int process_file(char* pathJobs, char* pathOut) {
 
           break;
 
-        case CMD_BARRIER:  // Not implemented
+        case CMD_BARRIER:
+          for (int i = 0; i < global_num_threads; i++) {
+            if (parameters->thread_active_array[i]) {
+              pthread_join(threads[i], NULL);
+            }
+          }
+          break;
         case CMD_EMPTY:
           break;
 
@@ -281,8 +291,6 @@ int process_file(char* pathJobs, char* pathOut) {
           for (int i = 0; i < global_num_threads; i++) {
             if (parameters->thread_active_array[i]) {
               pthread_join(threads[i], NULL);
-              parameters->thread_active_array[i] = 0;
-              parameters->active_threads--;
             }
           }
           destroyThreadParameters(parameters);
