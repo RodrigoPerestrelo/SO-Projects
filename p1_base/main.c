@@ -15,7 +15,7 @@
 #include "operations.h"
 #include "parser.h"
 
-#define MAX_PROC 5
+#define MAX_PROC 3
 #define MAX_THREADS 3
 
 typedef struct {
@@ -178,6 +178,14 @@ int process_file(char* pathJobs, char* pathOut) {
             break;
 
           case EOC:
+            for (int i = 0; i < MAX_THREADS; i++) {
+              if (parameters.thread_active_array[i]) {
+                pthread_join(threads[i], NULL);
+                parameters.thread_active_array[i] = 0;
+                parameters.active_threads--;
+              }
+            }
+
             ems_terminate();
             close(fdRead);
             close(fdWrite);
@@ -185,10 +193,7 @@ int process_file(char* pathJobs, char* pathOut) {
       }
     }
   }
-  for (int i = 0; i < MAX_THREADS; i++)
-  {
-    pthread_join(threads[i], NULL);
-  }
+
   
   return 0;
 }
