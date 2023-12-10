@@ -1,13 +1,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <pthread.h>
 
 #include "eventlist.h"
 #include "teste.h"
 
+
 #define BUFFERSIZE 1024
 #define IDMAX 128
 
+#define MAX_THREADS 3
+#define MAX_RESERVATION_SIZE 100
+
+
+typedef struct {
+  int thread_active_array[MAX_THREADS];
+  int thread_index;
+  int active_threads;
+  int file_descriptor;
+  unsigned int event_id;
+  unsigned int delay;
+  size_t num_rows;
+  size_t num_columns;
+  size_t num_coords;
+  size_t xs[MAX_RESERVATION_SIZE];
+  size_t ys[MAX_RESERVATION_SIZE];
+} ThreadParameters;
+
+pthread_rwlock_t rwlock;
 static struct EventList* event_list = NULL;
 static unsigned int state_access_delay_ms = 0;
 
@@ -72,6 +93,9 @@ int ems_terminate() {
 }
 
 int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
+
+  pthread_rwlock_wrlock(&rwlock);
+
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
     return 1;
@@ -112,10 +136,14 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
     return 1;
   }
 
+  pthread_rwlock_unlock(&rwlock);
+
   return 0;
 }
 
 int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys) {
+  pthread_rwlock_wrlock(&rwlock);
+
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
     return 1;
@@ -156,21 +184,32 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     }
     return 1;
   }
-
+  pthread_rwlock_unlock(&rwlock);
   return 0;
 }
 
-int ems_show(unsigned int event_id, int fdWrite) { // adicionar um fd
+void ems_show(void* args) { // adicionar um fd
+
+  pthread_rwlock_rdlock(&rwlock);
+
+  ThreadParameters* parameters = (ThreadParameters*)args;
+  unsigned int event_id = parameters->event_id;
+  int fdWrite = parameters->file_descriptor;
+
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
-    return 1;
+    parameters->thread_active_array[parameters->thread_index] = 0;
+    parameters->active_threads--;
+    return;
   }
 
   struct Event* event = get_event_with_delay(event_id);
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
-    return 1;
+    parameters->thread_active_array[parameters->thread_index] = 0;
+    parameters->active_threads--;
+    return;
   }
 
 char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 1);
@@ -194,7 +233,13 @@ for (size_t i = 1; i <= event->rows; i++) {
   *current = '\0';  // Adicionar terminador nulo no final do buffer
   writeFile(fdWrite, buffer);
   free(buffer);
-  return 0;
+
+  parameters->thread_active_array[parameters->thread_index] = 0;
+  parameters->active_threads--;
+
+  pthread_rwlock_unlock(&rwlock);
+  pthread_exit(NULL);
+  return;
 }
 
 
