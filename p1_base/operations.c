@@ -77,25 +77,33 @@ int ems_terminate() {
   return 0;
 }
 
-int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
+void ems_create(void *args) {
+
+  ThreadParameters **parameters = (ThreadParameters**)args;
+  unsigned int event_id = (*parameters)->event_id;
+  size_t num_rows = (*parameters)->num_rows;
+  size_t num_cols = (*parameters)->num_columns;
+  rwlock = (*parameters)->rwlock;
 
   pthread_rwlock_wrlock(&rwlock);
 
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
-    return 1;
+    fprintf(stderr, "Failed to create event\n");
+    return;
   }
 
   if (get_event_with_delay(event_id) != NULL) {
     fprintf(stderr, "Event already exists\n");
-    return 1;
+    return;
   }
 
   struct Event* event = malloc(sizeof(struct Event));
 
   if (event == NULL) {
     fprintf(stderr, "Error allocating memory for event\n");
-    return 1;
+    fprintf(stderr, "Failed to create event\n");
+    return;
   }
 
   event->id = event_id;
@@ -106,8 +114,9 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
   if (event->data == NULL) {
     fprintf(stderr, "Error allocating memory for event data\n");
+    fprintf(stderr, "Failed to create event\n");
     free(event);
-    return 1;
+    return;
   }
 
   for (size_t i = 0; i < num_rows * num_cols; i++) {
@@ -116,13 +125,19 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
   if (append_to_list(event_list, event) != 0) {
     fprintf(stderr, "Error appending event to list\n");
+    fprintf(stderr, "Failed to create event\n");
     free(event->data);
     free(event);
-    return 1;
+    return;
   }
 
+  (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
+  (*parameters)->active_threads--;
+
   pthread_rwlock_unlock(&rwlock);
-  return 0;
+  pthread_exit(NULL);
+
+  return;
 }
 
 void ems_reserve(void *args) {
@@ -180,7 +195,11 @@ void ems_reserve(void *args) {
     return;
   }
 
+  (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
+  (*parameters)->active_threads--;
+
   pthread_rwlock_unlock(&rwlock);
+  pthread_exit(NULL);
 
   return;
 }

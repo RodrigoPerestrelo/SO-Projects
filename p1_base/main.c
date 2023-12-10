@@ -186,9 +186,13 @@ int process_file(char* pathJobs, char* pathOut) {
             continue;
           }          
 
-          if (ems_create(event_id, num_rows, num_columns)) {
-            fprintf(stderr, "Failed to create event\n");
-          }
+          parameters->event_id = event_id;
+          parameters->num_rows = num_rows;
+          parameters->num_columns = num_columns;
+
+          pthread_create(&threads[parameters->thread_index], NULL, ems_create, (void*)&parameters);
+          parameters->active_threads++;
+          parameters->thread_active_array[parameters->thread_index] = 1;
 
           break;
 
