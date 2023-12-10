@@ -200,9 +200,20 @@ int process_file(char* pathJobs, char* pathOut) {
             continue;
           }
 
+          parameters->event_id = event_id;
+          parameters->num_coords = num_coords;
+          parameters->xs = xs;
+          parameters->ys = ys;
+
+          pthread_create(&threads[parameters->thread_index], NULL, ems_reserve, (void*)&parameters);
+          parameters->active_threads++;
+          parameters->thread_active_array[parameters->thread_index] = 1;
+
+          /*
           if (ems_reserve(event_id, num_coords, xs, ys)) {
             fprintf(stderr, "Failed to reserve seats\n");
           }
+          */
 
           break;
 
@@ -270,11 +281,10 @@ int process_file(char* pathJobs, char* pathOut) {
               parameters->active_threads--;
             }
           }
-
-          ems_terminate();
           destroyThreadParameters(parameters);
           close(fdRead);
           close(fdWrite);
+          ems_terminate();
           return 0;
       }
     }
@@ -290,6 +300,7 @@ ThreadParameters *createThreadParameters(int fdWrite) {
   params->active_threads = 0; // Inicialize conforme necessário
   params->file_descriptor = fdWrite; // Inicialize conforme necessário
   pthread_rwlock_init(&params->rwlock, NULL);
+  //pthread_mutex_init(&params->mutex, NULL);
 
   // Aloque memória para thread_active_array e inicialize conforme necessário
   params->thread_active_array = (int *)malloc((size_t)global_num_threads * sizeof(int));
@@ -313,6 +324,7 @@ void destroyThreadParameters(ThreadParameters *params) {
   if (params != NULL) {
     free(params->thread_active_array);
     pthread_rwlock_destroy(&params->rwlock);
+    //pthread_mutex_destroy(&params->mutex);
     free(params);
   }
 }

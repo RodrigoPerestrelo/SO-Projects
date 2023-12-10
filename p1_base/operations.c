@@ -15,6 +15,7 @@
 static struct EventList* event_list = NULL;
 static unsigned int state_access_delay_ms = 0;
 pthread_rwlock_t rwlock;
+//pthread_mutex_t mutex;
 
 /// Calculates a timespec from a delay in milliseconds.
 /// @param delay_ms Delay in milliseconds.
@@ -121,23 +122,32 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   }
 
   pthread_rwlock_unlock(&rwlock);
-
   return 0;
 }
 
-int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys) {
+void ems_reserve(void *args) {
+
+  ThreadParameters **parameters = (ThreadParameters**)args;
+  unsigned int event_id = (*parameters)->event_id;
+  size_t num_seats = (*parameters)->num_coords;
+  size_t *xs = (*parameters)->xs;
+  size_t *ys = (*parameters)->ys;
+  rwlock = (*parameters)->rwlock;
+
   pthread_rwlock_wrlock(&rwlock);
 
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
-    return 1;
+    fprintf(stderr, "Failed to reserve seats\n");
+    return;
   }
 
   struct Event* event = get_event_with_delay(event_id);
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
-    return 1;
+    fprintf(stderr, "Failed to reserve seats\n");
+    return;
   }
 
   unsigned int reservation_id = ++event->reservations;
@@ -166,10 +176,13 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     for (size_t j = 0; j < i; j++) {
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
     }
-    return 1;
+    fprintf(stderr, "Failed to reserve seats\n");
+    return;
   }
+
   pthread_rwlock_unlock(&rwlock);
-  return 0;
+
+  return;
 }
 
 void ems_show(void* args) { // adicionar um fd
@@ -180,9 +193,11 @@ void ems_show(void* args) { // adicionar um fd
   rwlock = (*parameters)->rwlock;
 
   pthread_rwlock_rdlock(&rwlock);
+  
 
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
+    fprintf(stderr, "Failed to show event\n");
     (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
     (*parameters)->active_threads--;
     return;
@@ -192,24 +207,25 @@ void ems_show(void* args) { // adicionar um fd
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
+    fprintf(stderr, "Failed to show event\n");
     (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
     (*parameters)->active_threads--;
     return;
   }
 
-char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 2);
-char *current = buffer;  // Ponteiro auxiliar para rastrear a posição atual
+  char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 2);
+  char *current = buffer;  // Ponteiro auxiliar para rastrear a posição atual
 
-for (size_t i = 1; i <= event->rows; i++) {
+  for (size_t i = 1; i <= event->rows; i++) {
     for (size_t j = 1; j <= event->cols; j++) {
-        unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));
-        int written = snprintf(current, 2, "%u", *seat);  // Use snprintf para evitar estouro de buffer
-        current += written;  // Atualizar o ponteiro auxiliar
+      unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));
+      int written = snprintf(current, 2, "%u", *seat);  // Use snprintf para evitar estouro de buffer
+      current += written;  // Atualizar o ponteiro auxiliar
 
-        if (j < event->cols) {
-            int space_written = snprintf(current, 2, " ");
-            current += space_written;
-        }
+      if (j < event->cols) {
+        int space_written = snprintf(current, 2, " ");
+        current += space_written;
+      }
     }
     int newline_written = snprintf(current, 2, "\n");
     current += newline_written;

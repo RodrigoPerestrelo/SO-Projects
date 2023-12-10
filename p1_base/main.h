@@ -18,9 +18,10 @@ typedef struct {
   size_t num_rows;
   size_t num_columns;
   size_t num_coords;
-  size_t xs[MAX_RESERVATION_SIZE];
-  size_t ys[MAX_RESERVATION_SIZE];
+  size_t *xs;
+  size_t *ys;
   pthread_rwlock_t rwlock;
+  //pthread_mutex_t mutex;
 } ThreadParameters;
 
 int iterateFiles(char* directoryPath);
