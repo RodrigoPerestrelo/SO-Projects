@@ -15,11 +15,12 @@
 #include "operations.h"
 #include "parser.h"
 
-#define MAX_PROC 3
-#define MAX_THREADS 3
+
+int global_num_proc = 0;
+int global_num_threads = 0;
 
 typedef struct {
-  int thread_active_array[MAX_THREADS];
+  //int thread_active_array[MAX_THREADS];
   int thread_index;
   int active_threads;
   int file_descriptor;
@@ -31,6 +32,119 @@ typedef struct {
   size_t xs[MAX_RESERVATION_SIZE];
   size_t ys[MAX_RESERVATION_SIZE];
 } ThreadParameters;
+
+
+int iterateFiles(char* directoryPath);
+char* pathingOut(const char *directoryPath, struct dirent *entry);
+char *pathingJobs(char *directoryPath, struct dirent *entry);
+int process_file(char* pathJobs, char* pathOut);
+
+
+/* Função main que faz o processamento dos argumentos e chama as funções que fazem o processamento dos ficheiros */
+int main(int argc, char *argv[]) {
+  unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
+
+  if (argc != 4 && argc != 5) {
+    fprintf(stderr, "Invalid arguments. See HELP for usage\n");
+    return 1;
+  }
+
+  char *endptr_proc;
+  long int num_proc = strtol(argv[2], &endptr_proc, 10);
+  if (*endptr_proc != '\0' || num_proc > INT_MAX) {
+    fprintf(stderr, "Invalid proc value or value too large\n");
+    return 1;
+  }
+  global_num_proc = (int)num_proc;
+
+  char *endptr_threads;
+  long int num_threads = strtol(argv[3], &endptr_threads, 10);
+  if (*endptr_threads != '\0' || num_threads > INT_MAX) {
+    fprintf(stderr, "Invalid threads value or value too large\n");
+    return 1;
+  }
+  global_num_threads = (int)num_threads;
+
+  if (argc == 5) {
+    char *endptr;
+    unsigned long int delay = strtoul(argv[4], &endptr, 10);
+
+    if (*endptr != '\0' || delay > UINT_MAX) {
+      fprintf(stderr, "Invalid delay value or value too large\n");
+      return 1;
+    }
+
+    state_access_delay_ms = (unsigned int)delay;
+  }
+
+  if (ems_init(state_access_delay_ms)) {
+    fprintf(stderr, "Failed to initialize EMS\n");
+    return 1;
+  }
+
+  iterateFiles(argv[1]);
+
+  return 0;
+}
+
+/* Função que itera sobre os ficheiros de uma diretoria */
+int iterateFiles(char* directoryPath) {
+  DIR *dir;
+  struct dirent *entry;
+
+  if ((dir = opendir(directoryPath)) == NULL) {
+      perror("Error opening directory");
+      return -1;
+  }
+
+  int activeProcesses = 0;
+  int status;
+
+  while ((entry = readdir(dir)) != NULL) {
+    if (strstr(entry->d_name, ".job") != NULL) {
+      if (activeProcesses == global_num_proc) {
+        wait(&status);
+        //printf("%d \n",status);
+        printf("O processo %d terminou devido ao wait.\n", status);
+        activeProcesses--;
+      }
+      pid_t pid = fork();
+      if (pid < 0) {
+        perror("Error forking process");
+        closedir(dir);
+        return -1;
+      } else if (pid == 0) { // Processo filho
+        char *pathJobs = pathingJobs(directoryPath, entry);
+        char *pathOut = pathingOut(directoryPath, entry);
+        if (process_file(pathJobs, pathOut) != 0) {
+          fprintf(stderr, "Error processing file: %s\n", pathJobs);
+          closedir(dir);
+          return -1;
+        }
+        free(pathJobs);
+        free(pathOut);
+        exit(0);
+      } else {
+        ++activeProcesses;
+        printf("Numero de processos ativos:%d \n", activeProcesses);
+      }
+    }
+  }
+  printf("O PAI VAI COMECAR A AGUARDAR CONCLUSAO.\n Numero de processos ativos:%d \n", activeProcesses);
+  // Aguardar a conclusão de todos os processos filhos restantes
+  while (activeProcesses > 0) {
+      wait(&status);
+      //printf("%d \n",status);
+      printf("O processo %d terminou pq o pai aguardou a sua conclusão.\n", status);
+      activeProcesses--;
+  }
+
+  closedir(dir);
+
+  return 0;
+}
+
+
 
 char* pathingOut(const char *directoryPath, struct dirent *entry) {
     const char *extension_to_remove = ".jobs";
@@ -69,13 +183,13 @@ int process_file(char* pathJobs, char* pathOut) {
   int fdRead = open(pathJobs, O_RDONLY);
   int fdWrite = open(pathOut, O_CREAT | O_TRUNC | O_WRONLY , S_IRUSR | S_IWUSR);
 
-  pthread_t threads[MAX_THREADS];
+  //pthread_t threads[global_num_threads];
 
   ThreadParameters parameters;
   parameters.active_threads = 0;
   parameters.thread_index = 0;
-  for (int i = 0; i < MAX_THREADS; i++) {
-    parameters.thread_active_array[i] = 0;
+  for (int i = 0; i < global_num_threads; i++) {
+    //parameters.thread_active_array[i] = 0;
   }
 
 
@@ -84,14 +198,14 @@ int process_file(char* pathJobs, char* pathOut) {
     size_t num_rows, num_columns, num_coords;
     size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
-    if (parameters.active_threads < MAX_THREADS) {
+    if (parameters.active_threads < global_num_threads) {
 
       parameters.thread_index = -1;
-      for (int i = 0; i < MAX_THREADS; ++i) {
-        if (!parameters.thread_active_array[i]) {
-            parameters.thread_index = i;
-            break;
-        }
+      for (int i = 0; i < global_num_threads; ++i) {
+        //if (!parameters.thread_active_array[i]) {
+         //   parameters.thread_index = i;
+            //break;
+        //}
       }
 
       switch (get_next(fdRead)) {
@@ -130,9 +244,9 @@ int process_file(char* pathJobs, char* pathOut) {
             parameters.event_id = event_id;
             parameters.file_descriptor = fdWrite;
 
-            pthread_create(&threads[parameters.thread_index], NULL, ems_show, (void*)&parameters);
-            parameters.active_threads++;
-            parameters.thread_active_array[parameters.thread_index] = 1;
+            //pthread_create(&threads[parameters.thread_index], NULL, ems_show, (void*)&parameters);
+            //parameters.active_threads++;
+            //parameters.thread_active_array[parameters.thread_index] = 1;
 
             break;
 
@@ -178,12 +292,12 @@ int process_file(char* pathJobs, char* pathOut) {
             break;
 
           case EOC:
-            for (int i = 0; i < MAX_THREADS; i++) {
-              if (parameters.thread_active_array[i]) {
-                pthread_join(threads[i], NULL);
-                parameters.thread_active_array[i] = 0;
-                parameters.active_threads--;
-              }
+            for (int i = 0; i < global_num_threads; i++) {
+              //if (parameters.thread_active_array[i]) {
+                //pthread_join(threads[i], NULL);
+                //parameters.thread_active_array[i] = 0;
+                //parameters.active_threads--;
+              //}
             }
 
             ems_terminate();
@@ -195,82 +309,5 @@ int process_file(char* pathJobs, char* pathOut) {
   }
 
   
-  return 0;
-}
-
-int iterateFiles(char* directoryPath) {
-  DIR *dir;
-  struct dirent *entry;
-
-  if ((dir = opendir(directoryPath)) == NULL) {
-      perror("Error opening directory");
-      return -1;
-  }
-
-  int activeProcesses = 0;
-  int status;
-  while ((entry = readdir(dir)) != NULL) {
-    if (strstr(entry->d_name, ".job") != NULL) {
-      if (activeProcesses == MAX_PROC) {
-        wait(&status);
-        printf("%d\n", status);
-        activeProcesses--;
-      }
-      pid_t pid = fork();
-      if (pid == -1) {
-        perror("Error forking process");
-        closedir(dir);
-        return -1;
-      } else if (pid == 0) { // Processo filho
-        char *pathJobs = pathingJobs(directoryPath, entry);
-        char *pathOut = pathingOut(directoryPath, entry);
-        if (process_file(pathJobs, pathOut) != 0) {
-          fprintf(stderr, "Error processing file: %s\n", pathJobs);
-          closedir(dir);
-          return -1;
-        }
-        free(pathJobs);
-        free(pathOut);
-        exit(0);
-      } else {
-        activeProcesses++;
-      }
-    }
-  }
-  printf("/\n");
-  // Aguardar a conclusão de todos os processos filhos restantes
-  while (activeProcesses > 0) {
-      wait(&status);
-      printf("%d\n", status);
-      activeProcesses--;
-  }
-
-  closedir(dir);
-
-  return 0;
-}
-
-int main(int argc, char *argv[]) {
-  unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
-
-  if (argc > 1) {
-    char *endptr;
-    unsigned long int delay = strtoul(argv[1], &endptr, 10);
-
-    if (*endptr != '\0' || delay > UINT_MAX) {
-      fprintf(stderr, "Invalid delay value or value too large\n");
-      return 1;
-    }
-
-    state_access_delay_ms = (unsigned int)delay;
-  }
-
-  if (ems_init(state_access_delay_ms)) {
-    fprintf(stderr, "Failed to initialize EMS\n");
-    return 1;
-  }
-
-  iterateFiles(argv[2]);
-
   return 0;
 }
