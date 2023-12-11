@@ -204,7 +204,7 @@ void ems_reserve(void *args) {
   return;
 }
 
-void ems_show(void* args) { // adicionar um fd
+void ems_show(void* args) {
 
   ThreadParameters **parameters = (ThreadParameters**)args;
   unsigned int event_id = (*parameters)->event_id;

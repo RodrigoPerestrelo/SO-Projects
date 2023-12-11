@@ -22,27 +22,31 @@ int global_num_threads = 0;
 int main(int argc, char *argv[]) {
   unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
 
+  //Se o número de argumentos for diferente de 4 ou 5, o input é inválido
   if (argc != 4 && argc != 5) {
     fprintf(stderr, "Invalid arguments. See HELP for usage\n");
     return 1;
   }
 
+  // Se o número de processos for inválido, o input é inválido
   char *endptr_proc;
   long int num_proc = strtol(argv[2], &endptr_proc, 10);
-  if (*endptr_proc != '\0' || num_proc > INT_MAX) {
+  if (*endptr_proc != '\0' || num_proc > INT_MAX || num_proc < 1) {
     fprintf(stderr, "Invalid proc value or value too large\n");
     return 1;
   }
   global_num_proc = (int)num_proc;
 
+  // Se o número de threads for inválido, o input é inválido
   char *endptr_threads;
   long int num_threads = strtol(argv[3], &endptr_threads, 10);
-  if (*endptr_threads != '\0' || num_threads > INT_MAX) {
+  if (*endptr_threads != '\0' || num_threads > INT_MAX || num_threads < 1) {
     fprintf(stderr, "Invalid threads value or value too large\n");
     return 1;
   }
   global_num_threads = (int)num_threads;
 
+  // Se houver quinto argumento, atribui-se o valor do delay
   if (argc == 5) {
     char *endptr;
     unsigned long int delay = strtoul(argv[4], &endptr, 10);
@@ -65,11 +69,13 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
+
 /* Função que itera sobre os ficheiros de uma diretoria */
 int iterateFiles(char* directoryPath) {
   DIR *dir;
   file *entry;
 
+  // Abrir diretoria
   if ((dir = opendir(directoryPath)) == NULL) {
       perror("Error opening directory");
       return -1;
@@ -78,6 +84,7 @@ int iterateFiles(char* directoryPath) {
   int activeProcesses = 0;
   int status;
 
+  // Iterar sobre os ficheiros da diretoria
   while ((entry = readdir(dir)) != NULL) {
     if (strstr(entry->d_name, ".job") != NULL) {
       if (activeProcesses == global_num_proc) {
@@ -91,6 +98,7 @@ int iterateFiles(char* directoryPath) {
         perror("Error forking process");
         closedir(dir);
         return -1;
+
       } else if (pid == 0) { // Processo filho
         char *pathJobs = pathingJobs(directoryPath, entry);
         char *pathOut = pathingOut(directoryPath, entry);
@@ -102,7 +110,8 @@ int iterateFiles(char* directoryPath) {
         free(pathJobs);
         free(pathOut);
         exit(0);
-      } else {
+
+      } else { // Processo pai
         ++activeProcesses;
         printf("Numero de processos ativos:%d \n", activeProcesses);
       }
@@ -123,7 +132,18 @@ int iterateFiles(char* directoryPath) {
 }
 
 
+/* Função que cria o path para o ficheiro de input */
+char *pathingJobs(char *directoryPath, struct dirent *entry) {
 
+  size_t length = strlen(directoryPath) + strlen(entry->d_name) + 2;
+  char *pathJobs = (char *)malloc(length);
+  snprintf(pathJobs, length, "%s/%s", directoryPath, entry->d_name);
+
+  return pathJobs;
+}
+
+
+/* Função que cria o path para o ficheiro de output */
 char* pathingOut(const char *directoryPath, struct dirent *entry) {
     const char *extension_to_remove = ".jobs";
     const char *new_extension = ".out";
@@ -147,15 +167,8 @@ char* pathingOut(const char *directoryPath, struct dirent *entry) {
     return pathFileOut;
 }
 
-char *pathingJobs(char *directoryPath, struct dirent *entry) {
 
-  size_t length = strlen(directoryPath) + strlen(entry->d_name) + 2;
-  char *pathJobs = (char *)malloc(length);
-  snprintf(pathJobs, length, "%s/%s", directoryPath, entry->d_name);
-
-  return pathJobs;
-}
-
+/* Função que processa o ficheiro de input e chama as funções que fazem as operações */
 int process_file(char* pathJobs, char* pathOut) {
 
   int fdRead = open(pathJobs, O_RDONLY);
@@ -167,17 +180,17 @@ int process_file(char* pathJobs, char* pathOut) {
   ThreadParameters *parameters = createThreadParameters(fdWrite);
 
   while (1) {
-    unsigned int event_id, delay;
+    unsigned int event_id, delay=10; //tá mal pq o delay n tá certo, n tá inicializado a nd
     size_t num_rows, num_columns, num_coords;
     size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
     if (parameters->active_threads < global_num_threads) {
-      sleep(1); //sem isto dá erros
+      sleep(1); //sem isto dá erros (código atropela-se)
 
       if (line == (int)thread_id && delay > 0) {
-        printf("Waiting... com thread ID\n");
+        printf("Waiting... com thread ID %d\n", thread_id);
         ems_wait(delay);
-        thread_id = 0;
+        thread_id = 0; // ????
       }
 
       parameters->thread_index = -1;
@@ -271,8 +284,8 @@ int process_file(char* pathJobs, char* pathOut) {
               "  RESERVE <event_id> [(<x1>,<y1>) (<x2>,<y2>) ...]\n"
               "  SHOW <event_id>\n"
               "  LIST\n"
-              "  WAIT <delay_ms> [thread_id]\n"  // thread_id is not implemented
-              "  BARRIER\n"                      // Not implemented
+              "  WAIT <delay_ms> [thread_id]\n"
+              "  BARRIER\n"
               "  HELP\n");
 
           break;
@@ -304,25 +317,27 @@ int process_file(char* pathJobs, char* pathOut) {
   return 0;
 }
 
+
+/* Função que cria a estrutura de dados que contém os parâmetros que são passados às threads */
 ThreadParameters *createThreadParameters(int fdWrite) {
   ThreadParameters *params = (ThreadParameters *)malloc(sizeof(ThreadParameters));
 
-  // Inicialize os campos conforme necessário
-  params->thread_index = 0; // Inicialize conforme necessário
-  params->active_threads = 0; // Inicialize conforme necessário
-  params->file_descriptor = fdWrite; // Inicialize conforme necessário
+  // Inicializa os parâmetros
+  params->thread_index = 0;
+  params->active_threads = 0;
+  params->file_descriptor = fdWrite;
   pthread_rwlock_init(&params->rwlock, NULL);
   //pthread_mutex_init(&params->mutex, NULL);
 
-  // Aloque memória para thread_active_array e inicialize conforme necessário
+  // Aloca memória para thread_active_array
   params->thread_active_array = (int *)malloc((size_t)global_num_threads * sizeof(int));
 
 
   if (params->thread_active_array == NULL) {
       fprintf(stderr, "Erro ao alocar memória para thread_active_array\n");
       free(params);
-      exit(EXIT_FAILURE); // Ou trate o erro de outra maneira
-  } else {
+      exit(EXIT_FAILURE);
+  } else { // Inicializa o array
     for (int i = 0; i < global_num_threads; i++) {
       params->thread_active_array[i] = 0;
     }
@@ -331,8 +346,10 @@ ThreadParameters *createThreadParameters(int fdWrite) {
   return params;
 }
 
+
+/* Função que destroi a estrutura de dados que contém os parâmetros que são passados às threads */
 void destroyThreadParameters(ThreadParameters *params) {
-  // Libere a memória alocada
+  // Liberta a memória alocada
   if (params != NULL) {
     free(params->thread_active_array);
     pthread_rwlock_destroy(&params->rwlock);
