@@ -16,7 +16,7 @@ int ems_terminate();
 /// @param num_rows Number of rows of the event to be created.
 /// @param num_cols Number of columns of the event to be created.
 /// @return 0 if the event was created successfully, 1 otherwise.
-void* ems_create(void *args);
+int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols);
 
 /// Creates a new reservation for the given event.
 /// @param event_id Id of the event to create a reservation for.
@@ -24,12 +24,12 @@ void* ems_create(void *args);
 /// @param xs Array of rows of the seats to reserve.
 /// @param ys Array of columns of the seats to reserve.
 /// @return 0 if the reservation was created successfully, 1 otherwise.
-void* ems_reserve(void *args);
+int ems_reserve(unsigned int event_id, size_t num_seats, size_t *xs, size_t *ys);
 
 /// Prints the given event.
 /// @param event_id Id of the event to print.
 /// @return 0 if the event was printed successfully, 1 otherwise.
-void* ems_show(void *args);
+int ems_show(unsigned int event_id, int fdWrite);
 
 /// Prints all the events.
 /// @return 0 if the events were printed successfully, 1 otherwise.

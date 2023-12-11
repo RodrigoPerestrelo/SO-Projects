@@ -133,7 +133,7 @@ int iterateFiles(char* directoryPath) {
 
 
 /* Função que cria o path para o ficheiro de input */
-char *pathingJobs(char *directoryPath, struct dirent *entry) {
+char *pathingJobs(char *directoryPath, file *entry) {
 
   size_t length = strlen(directoryPath) + strlen(entry->d_name) + 2;
   char *pathJobs = (char *)malloc(length);
@@ -144,7 +144,7 @@ char *pathingJobs(char *directoryPath, struct dirent *entry) {
 
 
 /* Função que cria o path para o ficheiro de output */
-char* pathingOut(const char *directoryPath, struct dirent *entry) {
+char* pathingOut(const char *directoryPath, file *entry) {
     const char *extension_to_remove = ".jobs";
     const char *new_extension = ".out";
 
@@ -173,49 +173,62 @@ int process_file(char* pathJobs, char* pathOut) {
 
   int fdRead = open(pathJobs, O_RDONLY);
   int fdWrite = open(pathOut, O_CREAT | O_TRUNC | O_WRONLY , S_IRUSR | S_IWUSR);
-  int line = 1;
-  unsigned int thread_id = 0;
 
+  size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
+  ThreadParameters* params = createThreadParameters(fdRead, fdWrite, xs, ys);
   pthread_t threads[global_num_threads];
-  ThreadParameters *parameters = createThreadParameters(fdWrite);
+
+  int resultadoThread;
 
   while (1) {
-    unsigned int event_id, delay=10; //tá mal pq o delay n tá certo, n tá inicializado a nd
+    int flagBarrier = 0;
+    for (int i = 0; i < global_num_threads; i++) {
+    pthread_create(&threads[i], NULL, thread_execute, (void*)&params);
+    }
+
+    for (int i = 0; i < global_num_threads; i++) {
+      pthread_join(threads[i], (void*)&resultadoThread);
+      if (resultadoThread == BARRIER) flagBarrier = 1;
+    }
+
+    if (!flagBarrier) break;
+    
+  }
+
+  close(fdRead);
+  close(fdWrite);
+  free(params);
+
+  return 0;
+}
+
+
+void* thread_execute(void* args) {
+  ThreadParameters **parameters = (ThreadParameters**)args;
+  int fdRead = (*parameters)->fdRead;
+  int fdWrite = (*parameters)->fdWrite;
+  pthread_mutex_t mutex = (*parameters)->mutex;
+  size_t *xs = (*parameters)->xs;
+  size_t *ys = (*parameters)->ys;
+
+  while (1) {
+    unsigned int event_id, delay;
     size_t num_rows, num_columns, num_coords;
-    size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
-    if (parameters->active_threads < global_num_threads) {
-      sleep(1); //sem isto dá erros (código atropela-se)
-
-      if (line == (int)thread_id && delay > 0) {
-        printf("Waiting... com thread ID %d\n", thread_id);
-        ems_wait(delay);
-        thread_id = 0; // ????
-      }
-
-      parameters->thread_index = -1;
-      for (int i = 0; i < global_num_threads; ++i) {
-        if (!parameters->thread_active_array[i]) {
-          parameters->thread_index = i;
-          break;
-        }
-      }
-
-      switch (get_next(fdRead)) {
+    pthread_mutex_lock(&mutex);
+    int command = get_next(fdRead);
+    switch (command) {
         case CMD_CREATE:
           if (parse_create(fdRead, &event_id, &num_rows, &num_columns) != 0) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
-          }          
+          }
 
-          parameters->event_id = event_id;
-          parameters->num_rows = num_rows;
-          parameters->num_columns = num_columns;
+          pthread_mutex_unlock(&mutex);
 
-          pthread_create(&threads[parameters->thread_index], NULL, ems_create, (void*)&parameters);
-          line++;
-          parameters->active_threads++;
-          parameters->thread_active_array[parameters->thread_index] = 1;
+          if (ems_create(event_id, num_rows, num_columns)) {
+            fprintf(stderr, "Failed to create event\n");
+          }
 
           break;
 
@@ -227,15 +240,11 @@ int process_file(char* pathJobs, char* pathOut) {
             continue;
           }
 
-          parameters->event_id = event_id;
-          parameters->num_coords = num_coords;
-          parameters->xs = xs;
-          parameters->ys = ys;
+          pthread_mutex_unlock(&mutex);
 
-          pthread_create(&threads[parameters->thread_index], NULL, ems_reserve, (void*)&parameters);
-          line++;
-          parameters->active_threads++;
-          parameters->thread_active_array[parameters->thread_index] = 1;
+          if (ems_reserve(event_id, num_coords, xs, ys)) {
+            fprintf(stderr, "Failed to reserve seats\n");
+          }
 
           break;
 
@@ -244,17 +253,18 @@ int process_file(char* pathJobs, char* pathOut) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-          parameters->event_id = event_id;
-          parameters->file_descriptor = fdWrite;
 
-          pthread_create(&threads[parameters->thread_index], NULL, ems_show, (void*)&parameters);
-          line++;
-          parameters->active_threads++;
-          parameters->thread_active_array[parameters->thread_index] = 1;
+          pthread_mutex_unlock(&mutex);
+
+          if (ems_show(event_id, fdWrite)) {
+            fprintf(stderr, "Failed to show event\n");
+          }
 
           break;
 
         case CMD_LIST_EVENTS:
+          pthread_mutex_unlock(&mutex);
+
           if (ems_list_events(fdWrite)) {
             fprintf(stderr, "Failed to list events\n");
           }
@@ -262,11 +272,15 @@ int process_file(char* pathJobs, char* pathOut) {
           break;
 
         case CMD_WAIT:
-          if (parse_wait(fdRead, &delay, &thread_id) == -1) {  // thread_id is not implemented
+
+          if (parse_wait(fdRead, &delay, NULL) == -1) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-          if (delay > 0 && thread_id == 0) {
+
+          pthread_mutex_unlock(&mutex);
+
+          if (delay > 0) {
             printf("Waiting...\n");
             ems_wait(delay);
           }
@@ -274,10 +288,12 @@ int process_file(char* pathJobs, char* pathOut) {
           break;
 
         case CMD_INVALID:
+          pthread_mutex_unlock(&mutex);
           fprintf(stderr, "Invalid command. See HELP for usage\n");
           break;
 
         case CMD_HELP:
+          pthread_mutex_unlock(&mutex);
           printf(
               "Available commands:\n"
               "  CREATE <event_id> <num_rows> <num_columns>\n"
@@ -291,69 +307,38 @@ int process_file(char* pathJobs, char* pathOut) {
           break;
 
         case CMD_BARRIER:
-          for (int i = 0; i < global_num_threads; i++) {
-            if (parameters->thread_active_array[i]) {
-              pthread_join(threads[i], NULL);
-            }
-          }
-          break;
+          return (void*)BARRIER;
         case CMD_EMPTY:
+          pthread_mutex_unlock(&mutex);
           break;
 
         case EOC:
-          for (int i = 0; i < global_num_threads; i++) {
-            if (parameters->thread_active_array[i]) {
-              pthread_join(threads[i], NULL);
-            }
-          }
-          destroyThreadParameters(parameters);
-          close(fdRead);
-          close(fdWrite);
-          ems_terminate();
-          return 0;
+          pthread_mutex_unlock(&mutex);
+          //ems_terminate();
+          return (void*)0;
       }
     }
   }
-  return 0;
-}
 
 
-/* Função que cria a estrutura de dados que contém os parâmetros que são passados às threads */
-ThreadParameters *createThreadParameters(int fdWrite) {
-  ThreadParameters *params = (ThreadParameters *)malloc(sizeof(ThreadParameters));
 
-  // Inicializa os parâmetros
-  params->thread_index = 0;
-  params->active_threads = 0;
-  params->file_descriptor = fdWrite;
-  pthread_rwlock_init(&params->rwlock, NULL);
-  //pthread_mutex_init(&params->mutex, NULL);
+  /* Função que cria a estrutura de dados que contém os parâmetros que são passados às threads */
+  ThreadParameters *createThreadParameters(int fdRead, int fdWrite, size_t xs[MAX_RESERVATION_SIZE], size_t ys[MAX_RESERVATION_SIZE]) {
+    ThreadParameters *params = (ThreadParameters *)malloc(sizeof(ThreadParameters));
 
-  // Aloca memória para thread_active_array
-  params->thread_active_array = (int *)malloc((size_t)global_num_threads * sizeof(int));
-
-
-  if (params->thread_active_array == NULL) {
-      fprintf(stderr, "Erro ao alocar memória para thread_active_array\n");
-      free(params);
-      exit(EXIT_FAILURE);
-  } else { // Inicializa o array
-    for (int i = 0; i < global_num_threads; i++) {
-      params->thread_active_array[i] = 0;
-    }
+    pthread_mutex_init(&params->mutex, NULL);
+    params->fdRead = fdRead;
+    params->fdWrite = fdWrite;
+    
+    params->xs = xs;
+    params->ys = ys;
+    
+    return params;
   }
-
-  return params;
-}
 
 
 /* Função que destroi a estrutura de dados que contém os parâmetros que são passados às threads */
-void destroyThreadParameters(ThreadParameters *params) {
-  // Liberta a memória alocada
-  if (params != NULL) {
-    free(params->thread_active_array);
-    pthread_rwlock_destroy(&params->rwlock);
-    //pthread_mutex_destroy(&params->mutex);
+  void destroyThreadParameters(ThreadParameters *params) {
     free(params);
   }
-}
+

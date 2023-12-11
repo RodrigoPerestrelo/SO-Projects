@@ -14,8 +14,6 @@
 
 static struct EventList* event_list = NULL;
 static unsigned int state_access_delay_ms = 0;
-pthread_rwlock_t rwlock;
-//pthread_mutex_t mutex;
 
 /// Calculates a timespec from a delay in milliseconds.
 /// @param delay_ms Delay in milliseconds.
@@ -77,33 +75,22 @@ int ems_terminate() {
   return 0;
 }
 
-void ems_create(void *args) {
-
-  ThreadParameters **parameters = (ThreadParameters**)args;
-  unsigned int event_id = (*parameters)->event_id;
-  size_t num_rows = (*parameters)->num_rows;
-  size_t num_cols = (*parameters)->num_columns;
-  rwlock = (*parameters)->rwlock;
-
-  pthread_rwlock_wrlock(&rwlock);
-
+int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
-    fprintf(stderr, "Failed to create event\n");
-    return;
+    return 1;
   }
 
   if (get_event_with_delay(event_id) != NULL) {
     fprintf(stderr, "Event already exists\n");
-    return;
+    return 1;
   }
 
   struct Event* event = malloc(sizeof(struct Event));
 
   if (event == NULL) {
     fprintf(stderr, "Error allocating memory for event\n");
-    fprintf(stderr, "Failed to create event\n");
-    return;
+    return 1;
   }
 
   event->id = event_id;
@@ -114,9 +101,8 @@ void ems_create(void *args) {
 
   if (event->data == NULL) {
     fprintf(stderr, "Error allocating memory for event data\n");
-    fprintf(stderr, "Failed to create event\n");
     free(event);
-    return;
+    return 1;
   }
 
   for (size_t i = 0; i < num_rows * num_cols; i++) {
@@ -125,44 +111,25 @@ void ems_create(void *args) {
 
   if (append_to_list(event_list, event) != 0) {
     fprintf(stderr, "Error appending event to list\n");
-    fprintf(stderr, "Failed to create event\n");
     free(event->data);
     free(event);
-    return;
+    return 1;
   }
 
-  (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
-  (*parameters)->active_threads--;
-
-  pthread_rwlock_unlock(&rwlock);
-  pthread_exit(NULL);
-
-  return;
+  return 0;
 }
 
-void ems_reserve(void *args) {
-
-  ThreadParameters **parameters = (ThreadParameters**)args;
-  unsigned int event_id = (*parameters)->event_id;
-  size_t num_seats = (*parameters)->num_coords;
-  size_t *xs = (*parameters)->xs;
-  size_t *ys = (*parameters)->ys;
-  rwlock = (*parameters)->rwlock;
-
-  pthread_rwlock_wrlock(&rwlock);
-
+int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys) {
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
-    fprintf(stderr, "Failed to reserve seats\n");
-    return;
+    return 1;
   }
 
   struct Event* event = get_event_with_delay(event_id);
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
-    fprintf(stderr, "Failed to reserve seats\n");
-    return;
+    return 1;
   }
 
   unsigned int reservation_id = ++event->reservations;
@@ -191,78 +158,49 @@ void ems_reserve(void *args) {
     for (size_t j = 0; j < i; j++) {
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
     }
-    fprintf(stderr, "Failed to reserve seats\n");
-    return;
+    return 1;
   }
 
-  (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
-  (*parameters)->active_threads--;
-
-  pthread_rwlock_unlock(&rwlock);
-  pthread_exit(NULL);
-
-  return;
+  return 0;
 }
 
-void ems_show(void* args) {
-
-  ThreadParameters **parameters = (ThreadParameters**)args;
-  unsigned int event_id = (*parameters)->event_id;
-  int fdWrite = (*parameters)->file_descriptor;
-  rwlock = (*parameters)->rwlock;
-
-  pthread_rwlock_rdlock(&rwlock);
-  
-
+int ems_show(unsigned int event_id, int fdWrite) { // adicionar um fd
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
-    fprintf(stderr, "Failed to show event\n");
-    (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
-    (*parameters)->active_threads--;
-    return;
+    return 1;
   }
 
-  struct Event *event = get_event_with_delay(event_id);
+  struct Event* event = get_event_with_delay(event_id);
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
-    fprintf(stderr, "Failed to show event\n");
-    (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
-    (*parameters)->active_threads--;
-    return;
+    return 1;
   }
 
-  char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 2);
-  char *current = buffer;  // Ponteiro auxiliar para rastrear a posição atual
+char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 2);
+char *current = buffer;  // Ponteiro auxiliar para rastrear a posição atual
 
-  for (size_t i = 1; i <= event->rows; i++) {
+for (size_t i = 1; i <= event->rows; i++) {
     for (size_t j = 1; j <= event->cols; j++) {
-      unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));
-      int written = snprintf(current, 2, "%u", *seat);  // Use snprintf para evitar estouro de buffer
-      current += written;  // Atualizar o ponteiro auxiliar
+        unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));
+        int written = snprintf(current, 2, "%u", *seat);  // Use snprintf para evitar estouro de buffer
+        current += written;  // Atualizar o ponteiro auxiliar
 
-      if (j < event->cols) {
-        int space_written = snprintf(current, 2, " ");
-        current += space_written;
-      }
+        if (j < event->cols) {
+            int space_written = snprintf(current, 2, " ");
+            current += space_written;
+        }
     }
     int newline_written = snprintf(current, 2, "\n");
     current += newline_written;
   }
 
-  *current = '\n';  // Adicionar terminador nulo no final do buffer
+  *current = '\n';
   current++;
-  *current = '\0';
+  *current = '\0';  // Adicionar terminador nulo no final do buffer
   writeFile(fdWrite, buffer);
   free(buffer);
-
-  (*parameters)->thread_active_array[(*parameters)->thread_index] = 0;
-  (*parameters)->active_threads--;
-
-  pthread_rwlock_unlock(&rwlock);
-  pthread_exit(NULL);
-
-  return;
+  return 0;
 }
 
 

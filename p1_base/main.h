@@ -6,29 +6,22 @@
 #include "constants.h"
 
 typedef struct dirent file;
-
+#define BARRIER 1
 
 typedef struct {
-  int *thread_active_array;
-  int thread_index;
-  int active_threads;
-  int file_descriptor;
-  unsigned int event_id;
-  unsigned int delay;
-  size_t num_rows;
-  size_t num_columns;
-  size_t num_coords;
-  size_t *xs;
+  int fdRead;
+  int fdWrite;
+  pthread_mutex_t mutex;
+  size_t *xs; 
   size_t *ys;
-  pthread_rwlock_t rwlock;
-  //pthread_mutex_t mutex;
 } ThreadParameters;
 
 int iterateFiles(char* directoryPath);
 char* pathingOut(const char *directoryPath, file *entry);
 char *pathingJobs(char *directoryPath, file *entry);
 int process_file(char* pathJobs, char* pathOut);
-ThreadParameters *createThreadParameters(int fdWrite);
+void* thread_execute(void* args);
+ThreadParameters *createThreadParameters(int fdWrite, int fdRead, size_t xs[MAX_RESERVATION_SIZE], size_t ys[MAX_RESERVATION_SIZE]);
 void destroyThreadParameters(ThreadParameters *params);
 
 #endif
