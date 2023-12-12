@@ -11,6 +11,7 @@ typedef struct dirent file;
 typedef struct {
   int fdRead;
   int fdWrite;
+  int barrierFlag;
   pthread_mutex_t mutex;
   size_t *xs; 
   size_t *ys;

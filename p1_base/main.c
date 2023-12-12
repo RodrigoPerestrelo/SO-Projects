@@ -192,6 +192,7 @@ int process_file(char* pathJobs, char* pathOut) {
     }
 
     if (!flagBarrier) break;
+    else params->barrierFlag = 0;
     
   }
 
@@ -215,6 +216,8 @@ void* thread_execute(void* args) {
     unsigned int event_id, delay;
     size_t num_rows, num_columns, num_coords;
 
+    if ((*parameters)->barrierFlag) return (void*)BARRIER;
+
     pthread_mutex_lock(&mutex);
     int command = get_next(fdRead);
     switch (command) {
@@ -223,7 +226,6 @@ void* thread_execute(void* args) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-
           pthread_mutex_unlock(&mutex);
 
           if (ems_create(event_id, num_rows, num_columns)) {
@@ -234,13 +236,12 @@ void* thread_execute(void* args) {
 
         case CMD_RESERVE:
           num_coords = parse_reserve(fdRead, MAX_RESERVATION_SIZE, &event_id, xs, ys);
+          pthread_mutex_unlock(&mutex);
 
           if (num_coords == 0) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-
-          pthread_mutex_unlock(&mutex);
 
           if (ems_reserve(event_id, num_coords, xs, ys)) {
             fprintf(stderr, "Failed to reserve seats\n");
@@ -253,7 +254,6 @@ void* thread_execute(void* args) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-
           pthread_mutex_unlock(&mutex);
 
           if (ems_show(event_id, fdWrite)) {
@@ -264,7 +264,6 @@ void* thread_execute(void* args) {
 
         case CMD_LIST_EVENTS:
           pthread_mutex_unlock(&mutex);
-
           if (ems_list_events(fdWrite)) {
             fprintf(stderr, "Failed to list events\n");
           }
@@ -272,12 +271,10 @@ void* thread_execute(void* args) {
           break;
 
         case CMD_WAIT:
-
           if (parse_wait(fdRead, &delay, NULL) == -1) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-
           pthread_mutex_unlock(&mutex);
 
           if (delay > 0) {
@@ -307,6 +304,8 @@ void* thread_execute(void* args) {
           break;
 
         case CMD_BARRIER:
+          pthread_mutex_unlock(&mutex);
+          (*parameters)->barrierFlag = BARRIER;
           return (void*)BARRIER;
         case CMD_EMPTY:
           pthread_mutex_unlock(&mutex);
@@ -329,6 +328,7 @@ void* thread_execute(void* args) {
     pthread_mutex_init(&params->mutex, NULL);
     params->fdRead = fdRead;
     params->fdWrite = fdWrite;
+    params->barrierFlag = 0;
     
     params->xs = xs;
     params->ys = ys;
