@@ -183,12 +183,14 @@ int process_file(char* pathJobs, char* pathOut) {
   while (1) {
     int flagBarrier = 0;
     for (int i = 0; i < global_num_threads; i++) {
-    pthread_create(&threads[i], NULL, thread_execute, (void*)&params);
+      pthread_create(&threads[i], NULL, thread_execute, (void*)&params);
     }
 
     for (int i = 0; i < global_num_threads; i++) {
       pthread_join(threads[i], (void*)&resultadoThread);
-      if (resultadoThread == BARRIER) flagBarrier = 1;
+      if (resultadoThread == BARRIER) {
+        flagBarrier = 1;
+      }
     }
 
     if (!flagBarrier) break;
@@ -198,7 +200,8 @@ int process_file(char* pathJobs, char* pathOut) {
 
   close(fdRead);
   close(fdWrite);
-  free(params);
+  destroyThreadParameters(params);
+  ems_terminate();
 
   return 0;
 }
@@ -213,13 +216,17 @@ void* thread_execute(void* args) {
   size_t *ys = (*parameters)->ys;
 
   while (1) {
-    unsigned int event_id, delay;
+    unsigned int event_id;
     size_t num_rows, num_columns, num_coords;
 
-    if ((*parameters)->barrierFlag) return (void*)BARRIER;
-
     pthread_mutex_lock(&mutex);
-    int command = get_next(fdRead);
+    if ((*parameters)->barrierFlag) {
+      pthread_mutex_unlock(&mutex);
+      return (void*)BARRIER;
+    }
+    
+    int command = (int)get_next(fdRead);
+
     switch (command) {
         case CMD_CREATE:
           if (parse_create(fdRead, &event_id, &num_rows, &num_columns) != 0) {
@@ -227,7 +234,6 @@ void* thread_execute(void* args) {
             continue;
           }
           pthread_mutex_unlock(&mutex);
-
           if (ems_create(event_id, num_rows, num_columns)) {
             fprintf(stderr, "Failed to create event\n");
           }
@@ -271,16 +277,14 @@ void* thread_execute(void* args) {
           break;
 
         case CMD_WAIT:
-          if (parse_wait(fdRead, &delay, NULL) == -1) {
+          if (parse_wait(fdRead, &(*parameters)->delayWait, &(*parameters)->waitingThread) == -1) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-          pthread_mutex_unlock(&mutex);
-
-          if (delay > 0) {
-            printf("Waiting...\n");
-            ems_wait(delay);
+          if ((*parameters)->delayWait > 0 && (*parameters)->waitingThread == 0) {
+            (*parameters)->waitingThread = (*parameters)->currentLine + 1;
           }
+          pthread_mutex_unlock(&mutex);
 
           break;
 
@@ -304,8 +308,8 @@ void* thread_execute(void* args) {
           break;
 
         case CMD_BARRIER:
-          pthread_mutex_unlock(&mutex);
           (*parameters)->barrierFlag = BARRIER;
+          pthread_mutex_unlock(&mutex);
           return (void*)BARRIER;
         case CMD_EMPTY:
           pthread_mutex_unlock(&mutex);
@@ -313,7 +317,6 @@ void* thread_execute(void* args) {
 
         case EOC:
           pthread_mutex_unlock(&mutex);
-          //ems_terminate();
           return (void*)0;
       }
     }
@@ -328,6 +331,10 @@ void* thread_execute(void* args) {
     pthread_mutex_init(&params->mutex, NULL);
     params->fdRead = fdRead;
     params->fdWrite = fdWrite;
+
+    params->currentLine = 0;
+    params->waitingThread = 0;
+
     params->barrierFlag = 0;
     
     params->xs = xs;
@@ -339,6 +346,7 @@ void* thread_execute(void* args) {
 
 /* Função que destroi a estrutura de dados que contém os parâmetros que são passados às threads */
   void destroyThreadParameters(ThreadParameters *params) {
+    pthread_mutex_destroy(&params->mutex);
     free(params);
   }
 
