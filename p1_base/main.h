@@ -16,7 +16,7 @@ typedef struct {
   unsigned int currentLine;
   unsigned int delayWait;
 
-  pthread_mutex_t mutex;
+  pthread_mutex_t *mutex;
   size_t *xs; 
   size_t *ys;
 } ThreadParameters;
