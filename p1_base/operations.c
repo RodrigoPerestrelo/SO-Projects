@@ -115,16 +115,17 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   for (size_t i = 0; i < num_rows * num_cols; i++) {
     event->data[i] = 0;
   }
-  pthread_rwlock_wrlock(&event->rwlock);
+  //pthread_rwlock_wrlock(&event->rwlock);
   if (append_to_list(event_list, event) != 0) {
     fprintf(stderr, "Error appending event to list\n");
     free(event->data);
     free(event);
+    //pthread_rwlock_unlock(&event->rwlock);
     pthread_rwlock_destroy(&rwlock);
     pthread_mutex_destroy(&mutex);
     return 1;
   }
-  pthread_rwlock_unlock(&event->rwlock);
+  //pthread_rwlock_unlock(&event->rwlock);
 
   return 0;
 }
@@ -143,7 +144,7 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
   }
 
   unsigned int reservation_id = ++event->reservations;
-  pthread_rwlock_wrlock(&event->rwlock);
+  //pthread_rwlock_wrlock(&event->rwlock);
   size_t i = 0;
   for (; i < num_seats; i++) {
     size_t row = xs[i];
@@ -168,9 +169,10 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     for (size_t j = 0; j < i; j++) {
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
     }
+    //pthread_rwlock_unlock(&event->rwlock);
     return 1;
   }
-  pthread_rwlock_unlock(&event->rwlock);
+  //pthread_rwlock_unlock(&event->rwlock);
   return 0;
 }
 
