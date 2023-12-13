@@ -11,11 +11,10 @@ typedef struct dirent file;
 typedef struct {
   int fdRead;
   int fdWrite;
-  int barrierFlag;
-  unsigned int waitingThread;
-  unsigned int currentLine;
-  unsigned int delayWait;
-
+  int *barrierFlag;
+  unsigned int *delayWait;
+  unsigned int *waitingThread;
+  int thread_id;
   pthread_mutex_t *mutex;
   size_t *xs; 
   size_t *ys;

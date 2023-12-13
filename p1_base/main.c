@@ -175,42 +175,43 @@ int process_file(char* pathJobs, char* pathOut) {
   int fdWrite = open(pathOut, O_CREAT | O_TRUNC | O_WRONLY , S_IRUSR | S_IWUSR);
 
   size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
-  ThreadParameters params;
   pthread_mutex_t mutex;
   pthread_mutex_init(&mutex, NULL);
-  params.mutex = &mutex;
-  params.fdRead = fdRead;
-  params.fdWrite = fdWrite;
-
-  params.barrierFlag = 0;
-  
-  params.xs = xs;
-  params.ys = ys;
+  int barrierFlag = 0;
+  unsigned int waitingThread = 0;
+  unsigned int delayWait = 0;
   pthread_t threads[global_num_threads];
+  ThreadParameters threadParameters[global_num_threads];
 
   int resultadoThread;
-
   while (1) {
     int flagBarrier = 0;
     for (int i = 0; i < global_num_threads; i++) {
-      pthread_create(&threads[i], NULL, thread_execute, &params);
+      threadParameters[i].barrierFlag = &barrierFlag;
+      threadParameters[i].mutex = &mutex;
+      threadParameters[i].waitingThread = &waitingThread;
+      threadParameters[i].delayWait = &delayWait;
+      threadParameters[i].fdRead = fdRead;
+      threadParameters[i].fdWrite = fdWrite;
+      threadParameters[i].xs = xs;
+      threadParameters[i].ys = ys;
+      threadParameters[i].thread_id = i+1;
+      pthread_create(&threads[i], NULL, thread_execute, &threadParameters[i]);
     }
-
     for (int i = 0; i < global_num_threads; i++) {
       pthread_join(threads[i], (void*)&resultadoThread);
       if (resultadoThread == BARRIER) {
         flagBarrier = 1;
       }
     }
-
     if (!flagBarrier) break;
-    else params.barrierFlag = 0;
+    else barrierFlag = 0;
     
   }
 
   close(fdRead);
   close(fdWrite);
-  //destroyThreadParameters(params);
+  pthread_mutex_destroy(&mutex);
   ems_terminate();
 
   return 0;
@@ -224,19 +225,25 @@ void* thread_execute(void* args) {
   pthread_mutex_t * mutex = (parameters)->mutex;
   size_t *xs = (parameters)->xs;
   size_t *ys = (parameters)->ys;
-
   while (1) {
     unsigned int event_id;
     size_t num_rows, num_columns, num_coords;
 
+    // ISTO NÃO ESTÁ A FAZER TODAS AS THREADS ESPERAREM POR CAUSA DO RESET QUE NÓS FAZEMOS
+    if ((*parameters->waitingThread == 0 || *parameters->waitingThread == (unsigned int)parameters->thread_id) && *parameters->delayWait > 0) {
+      ems_wait(*parameters->delayWait);
+      printf("entrei\n");
+      *parameters->delayWait = 0;
+    }
+
     pthread_mutex_lock(mutex);
-    if ((parameters)->barrierFlag) {
+
+    if (*parameters->barrierFlag) {
       pthread_mutex_unlock(mutex);
       return (void*)BARRIER;
     }
-    
-    int command = (int)get_next(fdRead);
 
+    int command = (int)get_next(fdRead);
     switch (command) {
         case CMD_CREATE:
           if (parse_create(fdRead, &event_id, &num_rows, &num_columns) != 0) {
@@ -287,13 +294,15 @@ void* thread_execute(void* args) {
           break;
 
         case CMD_WAIT:
-          if (parse_wait(fdRead, &(parameters)->delayWait, &(parameters)->waitingThread) == -1) {
+          if (parse_wait(fdRead, &(*parameters->delayWait), &(*parameters->waitingThread)) == -1) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
-          if ((parameters)->delayWait > 0 && (parameters)->waitingThread == 0) {
-            (parameters)->waitingThread = (parameters)->currentLine + 1;
+
+          if (*parameters->delayWait > 0 && *parameters->waitingThread == 0) {
+            
           }
+
           pthread_mutex_unlock(mutex);
 
           break;
@@ -318,7 +327,7 @@ void* thread_execute(void* args) {
           break;
 
         case CMD_BARRIER:
-          (parameters)->barrierFlag = BARRIER;
+          *parameters->barrierFlag = BARRIER;
           pthread_mutex_unlock(mutex);
           return (void*)BARRIER;
         case CMD_EMPTY:
@@ -330,13 +339,5 @@ void* thread_execute(void* args) {
           return (void*)0;
       }
     }
-  }
-
-
-
-/* Função que destroi a estrutura de dados que contém os parâmetros que são passados às threads */
-  void destroyThreadParameters(ThreadParameters *params) {
-    pthread_mutex_destroy(params->mutex);
-    free(params);
   }
 
