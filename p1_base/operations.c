@@ -102,12 +102,8 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   event->rows = num_rows;
   event->cols = num_cols;
   event->reservations = 0;
-  pthread_mutex_t mutex;
-  pthread_rwlock_t rwlock;
-  pthread_mutex_init(&mutex, NULL);
-  pthread_rwlock_init(&rwlock, NULL);
-  event->rwlock = rwlock;
-  event->mutex = mutex;
+  pthread_mutex_init(&event->mutex, NULL);
+  pthread_rwlock_init(&event->rwlock, NULL);
   event->data = malloc(num_rows * num_cols * sizeof(unsigned int));
 
   if (event->data == NULL) {
@@ -126,8 +122,8 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
     free(event->data);
     free(event);
     pthread_rwlock_unlock(&global_rwlock);
-    pthread_rwlock_destroy(&rwlock);
-    pthread_mutex_destroy(&mutex);
+    pthread_rwlock_destroy(&event->rwlock);
+    pthread_mutex_destroy(&event->mutex);
     return 1;
   }
   pthread_rwlock_unlock(&global_rwlock);
