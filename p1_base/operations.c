@@ -15,6 +15,7 @@
 static struct EventList* event_list = NULL;
 static unsigned int state_access_delay_ms = 0;
 pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_rwlock_t global_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
 /// Calculates a timespec from a delay in milliseconds.
 /// @param delay_ms Delay in milliseconds.
@@ -82,10 +83,13 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
     return 1;
   }
 
+  pthread_rwlock_rdlock(&global_rwlock);
   if (get_event_with_delay(event_id) != NULL) {
     fprintf(stderr, "Event already exists\n");
+    pthread_rwlock_unlock(&global_rwlock);
     return 1;
   }
+  pthread_rwlock_unlock(&global_rwlock);
 
   struct Event* event = malloc(sizeof(struct Event));
 
@@ -115,17 +119,17 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   for (size_t i = 0; i < num_rows * num_cols; i++) {
     event->data[i] = 0;
   }
-  //pthread_rwlock_wrlock(&event->rwlock);
+  pthread_rwlock_wrlock(&global_rwlock);
   if (append_to_list(event_list, event) != 0) {
     fprintf(stderr, "Error appending event to list\n");
     free(event->data);
     free(event);
-    //pthread_rwlock_unlock(&event->rwlock);
+    pthread_rwlock_unlock(&global_rwlock);
     pthread_rwlock_destroy(&rwlock);
     pthread_mutex_destroy(&mutex);
     return 1;
   }
-  //pthread_rwlock_unlock(&event->rwlock);
+  pthread_rwlock_unlock(&global_rwlock);
 
   return 0;
 }
@@ -135,8 +139,9 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     fprintf(stderr, "EMS state must be initialized\n");
     return 1;
   }
-
+  pthread_rwlock_rdlock(&global_rwlock);
   struct Event* event = get_event_with_delay(event_id);
+  pthread_rwlock_unlock(&global_rwlock);
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
@@ -182,7 +187,9 @@ int ems_show(unsigned int event_id, int fdWrite) {
     return 1;
   }
 
+  pthread_rwlock_rdlock(&global_rwlock);
   struct Event* event = get_event_with_delay(event_id);
+  pthread_rwlock_unlock(&global_rwlock);
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
@@ -226,24 +233,29 @@ int ems_list_events(int fdWrite) {
     return 1;
   }
 
+  pthread_rwlock_rdlock(&global_rwlock);
   if (event_list->head == NULL) {
+    pthread_rwlock_unlock(&global_rwlock);
+    pthread_mutex_lock(&global_mutex);
     writeFile(fdWrite, "No events\n");
+    pthread_mutex_unlock(&global_mutex);
     return 0;
   }
+  pthread_rwlock_unlock(&global_rwlock);
 
   char buffer[BUFFERSIZE];
 
   struct ListNode* current = event_list->head;
 
   while (current != NULL) {
-    pthread_rwlock_rdlock(&current->event->rwlock);
+    pthread_rwlock_rdlock(&global_rwlock);
     char *id = malloc(IDMAX*sizeof(char));
     sprintf(id, "%u\n", (current->event)->id);
-    pthread_rwlock_unlock(&current->event->rwlock);
+    current = current->next;
+    pthread_rwlock_unlock(&global_rwlock);
     strcat(buffer, "Event: ");
     strcat(buffer, id);
     free(id);
-    current = current->next;
   }
   pthread_mutex_lock(&global_mutex);
   writeFile(fdWrite, buffer);
