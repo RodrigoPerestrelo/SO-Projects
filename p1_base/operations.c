@@ -244,7 +244,8 @@ int ems_list_events(int fdWrite) {
   }
   pthread_rwlock_unlock(&global_rwlock);
 
-  char buffer[BUFFERSIZE];
+  char *buffer = malloc(sizeof(char) * BUFFERSIZE);
+  buffer[0] = '\0';
 
   struct ListNode* current = event_list->head;
 
@@ -261,6 +262,7 @@ int ems_list_events(int fdWrite) {
   pthread_mutex_lock(&global_mutex);
   writeFile(fdWrite, buffer);
   pthread_mutex_unlock(&global_mutex);
+  free(buffer);
 
   return 0;
 }
