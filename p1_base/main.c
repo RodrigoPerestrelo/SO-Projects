@@ -18,6 +18,8 @@
 int global_num_proc = 0;
 int global_num_threads = 0;
 
+
+
 /* Função main que faz o processamento dos argumentos e chama as funções que fazem o processamento dos ficheiros */
 int main(int argc, char *argv[]) {
   unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
@@ -174,12 +176,16 @@ int process_file(char* pathJobs, char* pathOut) {
   int fdRead = open(pathJobs, O_RDONLY);
   int fdWrite = open(pathOut, O_CREAT | O_TRUNC | O_WRONLY , S_IRUSR | S_IWUSR);
 
-  size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
+  size_t xs[global_num_threads][MAX_RESERVATION_SIZE];
+  size_t ys[global_num_threads][MAX_RESERVATION_SIZE];
   pthread_mutex_t mutex;
   pthread_mutex_init(&mutex, NULL);
   int barrierFlag = 0;
   unsigned int waitingThread = 0;
   unsigned int delayWait = 0;
+  int waitFlags[global_num_threads + 1];
+  for (int i = 0; i <= global_num_threads; i++)
+    waitFlags[i] = 0;
   pthread_t threads[global_num_threads];
   ThreadParameters threadParameters[global_num_threads];
 
@@ -193,9 +199,10 @@ int process_file(char* pathJobs, char* pathOut) {
       threadParameters[i].delayWait = &delayWait;
       threadParameters[i].fdRead = fdRead;
       threadParameters[i].fdWrite = fdWrite;
-      threadParameters[i].xs = xs;
-      threadParameters[i].ys = ys;
+      threadParameters[i].xs = xs[i];
+      threadParameters[i].ys = ys[i];
       threadParameters[i].thread_id = i+1;
+      threadParameters[i].waitFlags = waitFlags;
       pthread_create(&threads[i], NULL, thread_execute, &threadParameters[i]);
     }
     for (int i = 0; i < global_num_threads; i++) {
@@ -225,18 +232,18 @@ void* thread_execute(void* args) {
   pthread_mutex_t * mutex = (parameters)->mutex;
   size_t *xs = (parameters)->xs;
   size_t *ys = (parameters)->ys;
+
   while (1) {
     unsigned int event_id;
     size_t num_rows, num_columns, num_coords;
 
-    // ISTO NÃO ESTÁ A FAZER TODAS AS THREADS ESPERAREM POR CAUSA DO RESET QUE NÓS FAZEMOS
-    if ((*parameters->waitingThread == 0 || *parameters->waitingThread == (unsigned int)parameters->thread_id) && *parameters->delayWait > 0) {
-      ems_wait(*parameters->delayWait);
-      printf("entrei\n");
-      *parameters->delayWait = 0;
-    }
-
     pthread_mutex_lock(mutex);
+    if (parameters->waitFlags[parameters->thread_id] == 1) {
+      pthread_mutex_unlock(mutex);
+      ems_wait(*parameters->delayWait);
+      pthread_mutex_lock(mutex);
+      parameters->waitFlags[parameters->thread_id] = 0;
+    }
 
     if (*parameters->barrierFlag) {
       pthread_mutex_unlock(mutex);
@@ -300,7 +307,12 @@ void* thread_execute(void* args) {
           }
 
           if (*parameters->delayWait > 0 && *parameters->waitingThread == 0) {
-            
+            for (int i = 0; i <= global_num_threads; i++) {
+              parameters->waitFlags[i] = 1;
+            }
+          }
+          else if ((int)*parameters->waitingThread <= global_num_threads) {
+            parameters->waitFlags[*parameters->waitingThread] = 1;
           }
 
           pthread_mutex_unlock(mutex);

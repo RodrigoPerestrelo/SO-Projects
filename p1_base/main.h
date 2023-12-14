@@ -15,6 +15,7 @@ typedef struct {
   unsigned int *delayWait;
   unsigned int *waitingThread;
   int thread_id;
+  int *waitFlags;
   pthread_mutex_t *mutex;
   size_t *xs; 
   size_t *ys;
