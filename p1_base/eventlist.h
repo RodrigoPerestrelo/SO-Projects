@@ -9,6 +9,7 @@ struct Event {
   unsigned int reservations;  /// Number of reservations for the event.
   pthread_mutex_t mutex;
   pthread_rwlock_t rwlock;
+  pthread_mutex_t *seatsLock;
 
   size_t cols;  /// Number of columns.
   size_t rows;  /// Number of rows.
