@@ -106,12 +106,6 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   pthread_rwlock_init(&event->rwlock, NULL);
   event->data = malloc(num_rows * num_cols * sizeof(unsigned int));
 
-  event->seatsLock = malloc(event->rows * event->cols * sizeof(pthread_mutex_t));
-  int num_seats = (int)(num_rows * num_cols);
-  for (int i = 0; i < num_seats; i++){
-    pthread_mutex_init(&event->seatsLock[i], NULL);
-  }
-
   if (event->data == NULL) {
     fprintf(stderr, "Error allocating memory for event data\n");
     free(event);
@@ -127,12 +121,6 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
     fprintf(stderr, "Error appending event to list\n");
     free(event->data);
     free(event);
-
-    for (int i = 0; i < num_seats; i++){
-      pthread_mutex_destroy(&event->seatsLock[i]);
-    }
-    free(event->seatsLock);
-
     pthread_rwlock_unlock(&global_rwlock);
     pthread_rwlock_destroy(&event->rwlock);
     pthread_mutex_destroy(&event->mutex);
@@ -157,18 +145,8 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     return 1;
   }
 
-  if (sort_seats(num_seats, xs, ys)) {
-    fprintf(stderr, "Invalid Seats to Sort\n");
-    return 1;
-  }
-
-  pthread_rwlock_rdlock(&event->rwlock);
-  for (size_t i = 0; i < num_seats; i++) {
-    pthread_mutex_lock(&event->seatsLock[seat_index(event, xs[i], ys[i])]);
-  }
-  pthread_mutex_lock(&event->mutex);
+  pthread_rwlock_wrlock(&event->rwlock);
   unsigned int reservation_id = ++event->reservations;
-    pthread_mutex_unlock(&event->mutex);
   size_t i = 0;
   for (; i < num_seats; i++) {
     size_t row = xs[i];
@@ -193,14 +171,8 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     for (size_t j = 0; j < i; j++) {
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
     }
-    for (size_t j = 0; j < num_seats; j++) {
-      pthread_mutex_unlock(&event->seatsLock[seat_index(event, xs[j], ys[j])]);
-    }
     pthread_rwlock_unlock(&event->rwlock);
     return 1;
-  }
-  for (size_t j = 0; j < num_seats; j++) {
-    pthread_mutex_unlock(&event->seatsLock[seat_index(event, xs[j], ys[j])]);
   }
   pthread_rwlock_unlock(&event->rwlock);
   return 0;
@@ -224,7 +196,7 @@ int ems_show(unsigned int event_id, int fdWrite) {
   char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 2);
   char *current = buffer;  // Ponteiro auxiliar para rastrear a posição atual
 
-  pthread_rwlock_wrlock(&event->rwlock);
+  pthread_rwlock_rdlock(&event->rwlock);
   for (size_t i = 1; i <= event->rows; i++) {
     for (size_t j = 1; j <= event->cols; j++) {
       unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));

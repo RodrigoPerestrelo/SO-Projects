@@ -1,5 +1,4 @@
 #include "eventlist.h"
-#include "teste.h"
 
 #include <stdlib.h>
 
@@ -34,7 +33,6 @@ int append_to_list(struct EventList* list, struct Event* event) {
 static void free_event(struct Event* event) {
   if (!event) return;
 
-  freeMutexes(event, event->rows, event->cols);
   pthread_rwlock_destroy(&event->rwlock);
   pthread_mutex_destroy(&event->mutex);
   free(event->data);

@@ -26,7 +26,5 @@ char* pathingOut(const char *directoryPath, file *entry);
 char *pathingJobs(char *directoryPath, file *entry);
 int process_file(char* pathJobs, char* pathOut);
 void* thread_execute(void* args);
-ThreadParameters *createThreadParameters(int fdWrite, int fdRead, size_t xs[MAX_RESERVATION_SIZE], size_t ys[MAX_RESERVATION_SIZE]);
-void destroyThreadParameters(ThreadParameters *params);
 
 #endif

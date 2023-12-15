@@ -240,7 +240,6 @@ void* thread_execute(void* args) {
     pthread_mutex_lock(mutex);
     if (parameters->waitFlags[parameters->thread_id] == 1) {
       pthread_mutex_unlock(mutex);
-      printf("Waiting...\n");
       ems_wait(*parameters->delayWait);
       pthread_mutex_lock(mutex);
       parameters->waitFlags[parameters->thread_id] = 0;
@@ -353,4 +352,3 @@ void* thread_execute(void* args) {
       }
     }
   }
-
