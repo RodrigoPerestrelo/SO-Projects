@@ -4,7 +4,7 @@
 #include <pthread.h>
 
 #include "eventlist.h"
-#include "teste.h"
+#include "auxFunctions.h"
 #include "main.h"
 
 
@@ -83,10 +83,16 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
     return 1;
   }
 
-    pthread_rwlock_wrlock(&global_rwlock);
+  if (pthread_rwlock_wrlock(&global_rwlock) != 0) {
+    fprintf(stderr, "Erro ao obter a trava de escrita\n");
+    return 1;
+  }
   if (get_event_with_delay(event_id) != NULL) {
     fprintf(stderr, "Event already exists\n");
-    pthread_rwlock_unlock(&global_rwlock);
+    if (pthread_rwlock_unlock(&global_rwlock) != 0) {
+      fprintf(stderr, "Erro ao liberar a trava\n");
+      return 1;
+    }
     return 1;
   }
 
@@ -94,7 +100,10 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
   if (event == NULL) {
     fprintf(stderr, "Error allocating memory for event\n");
-    pthread_rwlock_unlock(&global_rwlock);
+    if (pthread_rwlock_unlock(&global_rwlock) != 0) {
+      fprintf(stderr, "Erro ao liberar a trava\n");
+      return 1;
+    }
     return 1;
   }
 
@@ -102,14 +111,21 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   event->rows = num_rows;
   event->cols = num_cols;
   event->reservations = 0;
-  pthread_mutex_init(&event->mutex, NULL);
-  pthread_rwlock_init(&event->rwlock, NULL);
+  if (pthread_mutex_init(&event->mutex, NULL) != 0) {
+    fprintf(stderr, "Erro ao inicializar o mutex do evento\n");
+    return 1;
+  }
+  if (pthread_rwlock_init(&event->rwlock, NULL) != 0) {
+    fprintf(stderr, "Erro ao inicializar a read-write lock do evento\n");
+    return 1;
+  }
   event->data = malloc(num_rows * num_cols * sizeof(unsigned int));
 
   if (event->data == NULL) {
     fprintf(stderr, "Error allocating memory for event data\n");
     free(event);
-    pthread_rwlock_unlock(&global_rwlock);
+    if (pthread_rwlock_unlock(&global_rwlock) != 0)
+      fprintf(stderr, "Erro ao liberar a trava\n");
     return 1;
   }
 
@@ -121,12 +137,18 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
     fprintf(stderr, "Error appending event to list\n");
     free(event->data);
     free(event);
-    pthread_rwlock_unlock(&global_rwlock);
-    pthread_rwlock_destroy(&event->rwlock);
-    pthread_mutex_destroy(&event->mutex);
+    if (pthread_rwlock_unlock(&global_rwlock) != 0)
+      fprintf(stderr, "Erro ao liberar a trava\n");
+    if (pthread_rwlock_destroy(&event->rwlock) != 0)
+        fprintf(stderr, "Erro ao destruir a read-write lock do evento\n");
+    if (pthread_mutex_destroy(&event->mutex) != 0)
+        fprintf(stderr, "Erro ao destruir o mutex do evento\n");
     return 1;
   }
-  pthread_rwlock_unlock(&global_rwlock);
+  if (pthread_rwlock_unlock(&global_rwlock) != 0) {
+    fprintf(stderr, "Erro ao liberar a trava\n");
+    return 1;
+  }
 
   return 0;
 }
@@ -136,16 +158,26 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     fprintf(stderr, "EMS state must be initialized\n");
     return 1;
   }
-  pthread_rwlock_rdlock(&global_rwlock);
+
+  if (pthread_rwlock_rdlock(&global_rwlock) != 0) {
+    fprintf(stderr, "Erro ao obter a read lock global\n");
+    return 1;
+  }
   struct Event* event = get_event_with_delay(event_id);
-  pthread_rwlock_unlock(&global_rwlock);
+  if (pthread_rwlock_unlock(&global_rwlock) != 0) {
+    fprintf(stderr, "Erro ao liberar a read lock global\n");
+    return 1;
+  }
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
     return 1;
   }
 
-  pthread_rwlock_wrlock(&event->rwlock);
+  if (pthread_rwlock_wrlock(&event->rwlock) != 0) {
+    fprintf(stderr, "Erro ao obter a write lock do evento\n");
+    return 1;
+  }
   unsigned int reservation_id = ++event->reservations;
   size_t i = 0;
   for (; i < num_seats; i++) {
@@ -171,10 +203,14 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     for (size_t j = 0; j < i; j++) {
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
     }
-    pthread_rwlock_unlock(&event->rwlock);
+    if (pthread_rwlock_unlock(&event->rwlock) != 0)
+      fprintf(stderr, "Erro ao desbloquear a read-write lock do evento\n");
     return 1;
   }
-  pthread_rwlock_unlock(&event->rwlock);
+  if (pthread_rwlock_unlock(&event->rwlock) != 0) {
+    fprintf(stderr, "Erro ao desbloquear a read-write lock do evento\n");
+    return 1;
+  }
   return 0;
 }
 
@@ -184,9 +220,15 @@ int ems_show(unsigned int event_id, int fdWrite) {
     return 1;
   }
 
-  pthread_rwlock_rdlock(&global_rwlock);
+  if (pthread_rwlock_rdlock(&global_rwlock) != 0) {
+    fprintf(stderr, "Erro ao obter a read lock global\n");
+    return 1;
+  }
   struct Event* event = get_event_with_delay(event_id);
-  pthread_rwlock_unlock(&global_rwlock);
+  if (pthread_rwlock_unlock(&global_rwlock) != 0) {
+    fprintf(stderr, "Erro ao desbloquear a read-write lock global\n");
+    return 1;
+  }
 
   if (event == NULL) {
     fprintf(stderr, "Event not found\n");
@@ -194,9 +236,17 @@ int ems_show(unsigned int event_id, int fdWrite) {
   }
 
   char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 2);
+  if (buffer == NULL) {
+    fprintf(stderr, "Erro ao alocar memória para o buffer\n");
+    return 1;
+  }
+
   char *current = buffer;  // Ponteiro auxiliar para rastrear a posição atual
 
-  pthread_rwlock_rdlock(&event->rwlock);
+  if (pthread_rwlock_rdlock(&event->rwlock) != 0) {
+    fprintf(stderr, "Erro ao obter a read lock do evento\n");
+    return 1;
+  }
   for (size_t i = 1; i <= event->rows; i++) {
     for (size_t j = 1; j <= event->cols; j++) {
       unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));
@@ -215,10 +265,21 @@ int ems_show(unsigned int event_id, int fdWrite) {
   *current = '\n';
   current++;
   *current = '\0';  // Adicionar terminador nulo no final do buffer
-  pthread_mutex_lock(&global_mutex);
+  if (pthread_mutex_lock(&global_mutex) != 0) {
+    fprintf(stderr, "Erro ao obter o mutex global\n");
+    return 1;
+  }
+
   writeFile(fdWrite, buffer);
-  pthread_mutex_unlock(&global_mutex);
-  pthread_rwlock_unlock(&event->rwlock);
+
+  if (pthread_mutex_unlock(&global_mutex) != 0) {
+    fprintf(stderr, "Erro ao liberar o mutex global\n");
+    return 1;
+  }
+  if (pthread_rwlock_unlock(&event->rwlock) != 0) {
+    fprintf(stderr, "Erro ao desbloquear a read-write lock do evento\n");
+    return 1;
+  }
   free(buffer);
   return 0;
 }
@@ -230,34 +291,71 @@ int ems_list_events(int fdWrite) {
     return 1;
   }
 
-  pthread_rwlock_rdlock(&global_rwlock);
+  if (pthread_rwlock_rdlock(&global_rwlock) != 0) {
+    fprintf(stderr, "Erro ao obter a read lock global\n");
+    return 1;
+  }
   if (event_list->head == NULL) {
-    pthread_rwlock_unlock(&global_rwlock);
-    pthread_mutex_lock(&global_mutex);
+    if (pthread_rwlock_unlock(&global_rwlock) != 0) {
+        fprintf(stderr, "Erro ao desbloquear a read-write lock global\n");
+        return 1;
+    }
+    if (pthread_mutex_lock(&global_mutex) != 0) {
+        fprintf(stderr, "Erro ao obter o mutex global\n");
+        return 1;
+    }
+
     writeFile(fdWrite, "No events\n");
-    pthread_mutex_unlock(&global_mutex);
+
+    if (pthread_mutex_unlock(&global_mutex) != 0) {
+        fprintf(stderr, "Erro ao desbloquear o mutex global\n");
+        return 1;
+    }
     return 0;
   }
-  pthread_rwlock_unlock(&global_rwlock);
+  struct ListNode* current = event_list->head;
+  if (pthread_rwlock_unlock(&global_rwlock) != 0) {
+    fprintf(stderr, "Erro ao desbloquear o mutex global\n");
+    return 1;
+  }
 
   char *buffer = malloc(sizeof(char) * BUFFERSIZE);
+  if (buffer == NULL) {
+    fprintf(stderr, "Erro ao alocar memória para o buffer\n");
+    return 1;
+  }
+
   buffer[0] = '\0';
 
-  struct ListNode* current = event_list->head;
-
   while (current != NULL) {
-    pthread_rwlock_rdlock(&global_rwlock);
+    if (pthread_rwlock_rdlock(&global_rwlock) != 0) {
+      fprintf(stderr, "Erro ao obter a read lock global\n");
+      return 1;
+    }
     char *id = malloc(IDMAX*sizeof(char));
     sprintf(id, "%u\n", (current->event)->id);
     current = current->next;
-    pthread_rwlock_unlock(&global_rwlock);
+    
+    if (pthread_rwlock_unlock(&global_rwlock) != 0) {
+    fprintf(stderr, "Erro ao desbloquear a read-write lock global\n");
+    return 1;
+    }
     strcat(buffer, "Event: ");
     strcat(buffer, id);
     free(id);
   }
-  pthread_mutex_lock(&global_mutex);
+
+  if (pthread_mutex_lock(&global_mutex) != 0) {
+    fprintf(stderr, "Erro ao obter o mutex global\n");
+    return 1;
+  }
+
   writeFile(fdWrite, buffer);
-  pthread_mutex_unlock(&global_mutex);
+
+  if (pthread_mutex_unlock(&global_mutex) != 0) {
+    fprintf(stderr, "Erro ao liberar o mutex global\n");
+    return 1;
+  }
   free(buffer);
 
   return 0;

@@ -1,6 +1,7 @@
 #include "eventlist.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 
 struct EventList* create_list() {
   struct EventList* list = (struct EventList*)malloc(sizeof(struct EventList));
@@ -33,8 +34,14 @@ int append_to_list(struct EventList* list, struct Event* event) {
 static void free_event(struct Event* event) {
   if (!event) return;
 
-  pthread_rwlock_destroy(&event->rwlock);
-  pthread_mutex_destroy(&event->mutex);
+  if (pthread_rwlock_destroy(&event->rwlock) != 0) {
+    fprintf(stderr, "Erro ao destruir a read-write lock do evento\n");
+  }
+
+  if (pthread_mutex_destroy(&event->mutex) != 0) {
+    fprintf(stderr, "Erro ao destruir o mutex do evento\n");
+  }
+
   free(event->data);
   free(event);
 }

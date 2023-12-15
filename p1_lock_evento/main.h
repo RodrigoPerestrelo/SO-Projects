@@ -3,9 +3,9 @@
 
 #include <stdio.h>
 #include <pthread.h>
+#include <dirent.h>
 #include "constants.h"
 
-typedef struct dirent file;
 #define BARRIER 1
 
 typedef struct {
@@ -22,8 +22,6 @@ typedef struct {
 } ThreadParameters;
 
 int iterateFiles(char* directoryPath);
-char* pathingOut(const char *directoryPath, file *entry);
-char *pathingJobs(char *directoryPath, file *entry);
 int process_file(char* pathJobs, char* pathOut);
 void* thread_execute(void* args);
 
