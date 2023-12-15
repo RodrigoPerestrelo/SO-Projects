@@ -164,8 +164,8 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
         fprintf(stderr, "Error destroying event read-write lock\n");
     if (pthread_mutex_destroy(&event->mutex) != 0)
         fprintf(stderr, "Error destroying event mutex\n");
-    return 1;
     free(event);
+    return 1;
   }
   if (pthread_rwlock_unlock(&global_rwlock) != 0) {
     fprintf(stderr, "Error unlocking write lock.\n");

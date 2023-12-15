@@ -192,7 +192,7 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
   // If the reservation was not successful, free the seats that were reserved.
   if (i < num_seats) {
     //event->reservations--;
-    for (size_t j = 0; j < i + 1; j++) {
+    for (size_t j = 0; j < i; j++) {
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
       pthread_mutex_unlock(&event->seatsLock[seat_index(event, xs[j], ys[j])]);
     }
