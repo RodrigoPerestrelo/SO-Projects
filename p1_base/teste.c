@@ -27,47 +27,37 @@ int writeFile(int fd, char* buffer) {
     return 0;
 }
 
-// Função de comparação para qsort
-int comparePairs(const void *a, const void *b) {
-    // Comparação usando os valores de xs
-    size_t xA = ((Pair*)a)->x;
-    size_t xB = ((Pair*)b)->x;
-    if (xA < xB) return -1;
-    if (xA > xB) return 1;
+void switch_seats(size_t* xs, size_t* ys, size_t i, size_t j) {
+    size_t temp = xs[i];
+    xs[i] = xs[j];
+    xs[j] = temp;
 
-    // Em caso de empate, desempatar usando os valores de ys
-    size_t yA = ((Pair*)a)->y;
-    size_t yB = ((Pair*)b)->y;
-    return (yA < yB) ? -1 : (yA > yB);
+    temp = ys[i];
+    ys[i] = ys[j];
+    ys[j] = temp;
 }
 
-// Função para ordenar os arrays xs e ys
-void sortArrays(size_t *xs, size_t *ys, size_t num_seats) {
-    // Criar um array de pares
-    Pair *pairs = malloc(num_seats * sizeof(Pair));
-    if (!pairs) {
-        fprintf(stderr, "Erro na alocação de memória\n");
-        exit(EXIT_FAILURE);
+// Ordena lugares utilizando um algoritmo bubblesort
+int sort_seats(size_t num_seats, size_t* xs, size_t* ys) {
+    // Algoritmo de ordenação
+    for (size_t i = 0; i < num_seats - 1; i++) {
+        for (size_t j = 0; j < num_seats - i - 1; j++) {
+            // Ordena por linhas
+            if (xs[j] > xs[j + 1]) {
+                switch_seats(xs, ys, j, j + 1);
+            }
+            // Se as linhas forem iguais, ordena por colunas
+            else if (xs[j] == xs[j + 1] && ys[j] == ys[j + 1]) {
+              return 1;
+            }
+            else if (xs[j] == xs[j + 1] && ys[j] > ys[j + 1]) {
+                switch_seats(xs, ys, j, j + 1);
+            }
+        }
     }
-
-    // Preencher o array de pares com os valores de xs e ys
-    for (size_t i = 0; i < num_seats; ++i) {
-        pairs[i].x = xs[i];
-        pairs[i].y = ys[i];
-    }
-
-    // Usar qsort para ordenar o array de pares
-    qsort(pairs, num_seats, sizeof(Pair), comparePairs);
-
-    // Atualizar os arrays xs e ys com os valores ordenados
-    for (size_t i = 0; i < num_seats; ++i) {
-        xs[i] = pairs[i].x;
-        ys[i] = pairs[i].y;
-    }
-
-    // Liberar a memória alocada para o array de pares
-    free(pairs);
+    return 0;
 }
+
 
 void freeMutexes(struct Event* event, size_t num_rows, size_t num_cols) {
     int num_seats = (int)(num_rows * num_cols);

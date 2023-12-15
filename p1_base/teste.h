@@ -9,8 +9,8 @@ typedef struct {
 } Pair;
 
 int writeFile(int fd, char* buffer);
-int comparePairs(const void *a, const void *b);
-void sortArrays(size_t *xs, size_t *ys, size_t num_seats);
+void switch_seats(size_t* xs, size_t* ys, size_t i, size_t j);
+int sort_seats(size_t num_seats, size_t* xs, size_t* ys);
 void freeMutexes(struct Event*event, size_t num_rows, size_t num_cols);
 
 #endif

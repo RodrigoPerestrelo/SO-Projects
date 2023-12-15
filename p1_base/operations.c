@@ -157,8 +157,12 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     return 1;
   }
 
+  if (sort_seats(num_seats, xs, ys)) {
+    fprintf(stderr, "Invalid Seats to Sort\n");
+    return 1;
+  }
+
   pthread_rwlock_rdlock(&event->rwlock);
-  sortArrays(xs, ys, num_seats);
   for (size_t i = 0; i < num_seats; i++) {
     pthread_mutex_lock(&event->seatsLock[seat_index(event, xs[i], ys[i])]);
   }
