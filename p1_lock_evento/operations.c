@@ -1,11 +1,14 @@
-#include "eventlist.h"
-#include "auxFunctions.h"
-#include "main.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <pthread.h>
+#include <stdatomic.h>
+
+#include "eventlist.h"
+#include "auxFunctions.h"
+#include "main.h"
+
+
 
 #define BUFFERSIZE 1024
 #define IDMAX 128
@@ -55,7 +58,7 @@ static size_t seat_index(struct Event* event, size_t row, size_t col) { return (
 
 int ems_init(unsigned int delay_ms) {
   if (event_list != NULL) {
-    fprintf(stderr, "EMS state has already been initialized.\n");
+    fprintf(stderr, "EMS state has already been initialized\n");
     return 1;
   }
 
@@ -67,7 +70,7 @@ int ems_init(unsigned int delay_ms) {
 
 int ems_terminate() {
   if (event_list == NULL) {
-    fprintf(stderr, "EMS state must be initialized.\n");
+    fprintf(stderr, "EMS state must be initialized\n");
     return 1;
   }
 
@@ -77,25 +80,24 @@ int ems_terminate() {
 
 int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   if (event_list == NULL) {
-    fprintf(stderr, "EMS state must be initialized.\n");
+    fprintf(stderr, "EMS state must be initialized\n");
     return 1;
   }
 
   if (pthread_rwlock_wrlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Error locking write lock.\n");
+    fprintf(stderr, "Error locking write lock\n.");
     return 1;
   }
+  
   if (get_event_with_delay(event_id) != NULL) {
-    fprintf(stderr, "Event already exists.\n");
-    if (pthread_rwlock_unlock(&global_rwlock) != 0) {
-      fprintf(stderr, "Error unlocking write lock.\n");
-      return 1;
+    fprintf(stderr, "Event already exists\n");
+    if(pthread_rwlock_unlock(&global_rwlock) != 0) {
+      fprintf(stderr, "Error unloking write lock.\n");
     }
     return 1;
   }
 
   struct Event* event = malloc(sizeof(struct Event));
-
   if (event == NULL) {
     fprintf(stderr, "Error allocating memory for event.\n");
     if (pthread_rwlock_unlock(&global_rwlock) != 0) {
@@ -126,14 +128,36 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
     return 1;
   }
 
+  event->seatsLock = malloc(event->rows * event->cols * sizeof(pthread_mutex_t));
+  if (event->seatsLock == NULL) {
+    fprintf(stderr, "Error allocating memory for seatsLock");
+    return 1;
+  }
+
+  int num_seats = (int)(num_rows * num_cols);
+  for (int i = 0; i < num_seats; i++){
+    if (pthread_mutex_init(&event->seatsLock[i], NULL) != 0) {
+      fprintf(stderr, "Error initializing mutex");
+      return 1;
+    }
+  }
+
   for (size_t i = 0; i < num_rows * num_cols; i++) {
     event->data[i] = 0;
   }
 
   if (append_to_list(event_list, event) != 0) {
-    fprintf(stderr, "Error appending event to list.\n");
+    fprintf(stderr, "Error appending event to list\n");
     free(event->data);
-    free(event);
+
+    for (int i = 0; i < num_seats; i++){
+      if (pthread_mutex_destroy(&event->seatsLock[i]) != 0) {
+        fprintf(stderr, "Error destroying mutex");
+        return 1;
+      }
+    }
+    free(event->seatsLock);
+
     if (pthread_rwlock_unlock(&global_rwlock) != 0)
       fprintf(stderr, "Error unlocking write lock.\n");
     if (pthread_rwlock_destroy(&event->rwlock) != 0)
@@ -141,6 +165,7 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
     if (pthread_mutex_destroy(&event->mutex) != 0)
         fprintf(stderr, "Error destroying event mutex\n");
     return 1;
+    free(event);
   }
   if (pthread_rwlock_unlock(&global_rwlock) != 0) {
     fprintf(stderr, "Error unlocking write lock.\n");
@@ -171,44 +196,69 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     return 1;
   }
 
-  if (pthread_rwlock_wrlock(&event->rwlock) != 0) {
-    fprintf(stderr, "Error locking write lock.\n");
+  if (sortVectors(num_seats, xs, ys)) {
+    fprintf(stderr, "Invalid Seats to Sort\n");
     return 1;
   }
-  unsigned int reservation_id = ++event->reservations;
+
+  if (pthread_rwlock_rdlock(&event->rwlock) != 0) {
+    fprintf(stderr, "Error locking read lock.\n");
+    return 1;
+  }
+
+  unsigned int myValue = atomic_load(&event->reservations);
+  unsigned int newId = myValue + 1;
+  atomic_store(&event->reservations, newId);
   size_t i = 0;
   for (; i < num_seats; i++) {
     size_t row = xs[i];
     size_t col = ys[i];
+    if(pthread_mutex_lock(&event->seatsLock[seat_index(event, row, col)]) != 0) {
+      fprintf(stderr, "Error locking mutex seat lock.\n");
+      return 1;
+    }
+
 
     if (row <= 0 || row > event->rows || col <= 0 || col > event->cols) {
-      fprintf(stderr, "Invalid seat.\n");
+      fprintf(stderr, "Invalid seat\n");
       break;
     }
 
     if (*get_seat_with_delay(event, seat_index(event, row, col)) != 0) {
-      fprintf(stderr, "Seat already reserved.\n");
+      fprintf(stderr, "Seat already reserved\n");
       break;
     }
 
-    *get_seat_with_delay(event, seat_index(event, row, col)) = reservation_id;
-  }
 
+    *get_seat_with_delay(event, seat_index(event, row, col)) = newId;
+  }
+  
   // If the reservation was not successful, free the seats that were reserved.
   if (i < num_seats) {
-    event->reservations--;
-    for (size_t j = 0; j < i; j++) {
+    //event->reservations--;
+    for (size_t j = 0; j < i + 1; j++) {
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
+      if(pthread_mutex_unlock(&event->seatsLock[seat_index(event, xs[j], ys[j])]) != 0) {
+        fprintf(stderr, "Error unlocking mutex seat lock\n.");
+        return 1;
+      }
     }
-    if (pthread_rwlock_unlock(&event->rwlock) != 0)
+    if (pthread_rwlock_unlock(&event->rwlock) != 0) {
       fprintf(stderr, "Error unlocking write lock.\n");
+      return 1;
+    }
     return 1;
+  }
+  for (size_t j = 0; j < num_seats; j++) {
+    if(pthread_mutex_unlock(&event->seatsLock[seat_index(event, xs[j], ys[j])]) != 0) {
+      fprintf(stderr, "Error unlocking mutex seat lock\n.");
+      return 1;
+    }
   }
   if (pthread_rwlock_unlock(&event->rwlock) != 0) {
     fprintf(stderr, "Error unlocking write lock.\n");
     return 1;
   }
-
   return 0;
 }
 
@@ -238,18 +288,17 @@ int ems_show(unsigned int event_id, int fdWrite) {
     fprintf(stderr, "Error allocating memory for buffer.\n");
     return 1;
   }
-
   char *current = buffer;  // Auxiliar pointer to the current position in the buffer
 
-  if (pthread_rwlock_rdlock(&event->rwlock) != 0) {
-    fprintf(stderr, "Error locking read lock.\n");
+  if(pthread_rwlock_wrlock(&event->rwlock) != 0) {
+    fprintf(stderr, "Error locking write event lock.\n");
     return 1;
   }
   for (size_t i = 1; i <= event->rows; i++) {
     for (size_t j = 1; j <= event->cols; j++) {
       unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));
-      int written = snprintf(current, 2, "%u", *seat);
-      current += written;  // Update the current position in the buffer
+      int written = snprintf(current, 2, "%u", *seat);  // Use snprintf para evitar estouro de buffer
+      current += written;  // Atualizar o ponteiro auxiliar
 
       if (j < event->cols) {
           int space_written = snprintf(current, 2, " ");
@@ -260,9 +309,13 @@ int ems_show(unsigned int event_id, int fdWrite) {
     current += newline_written;
   }
 
-  *current = '\n'; // Add newline at the end of the buffer
+  *current = '\n';
   current++;
-  *current = '\0';  // Add null terminator at the end of the buffer
+  *current = '\0';  // Adicionar terminador nulo no final do buffer
+  if (pthread_rwlock_unlock(&event->rwlock) != 0) {
+    fprintf(stderr, "Error unlocking read lock.\n");
+    return 1;
+  }
   if (pthread_mutex_lock(&global_mutex) != 0) {
     fprintf(stderr, "Error locking global mutex.\n");
     return 1;
@@ -274,11 +327,6 @@ int ems_show(unsigned int event_id, int fdWrite) {
     fprintf(stderr, "Error unlocking global mutex.\n");
     return 1;
   }
-  if (pthread_rwlock_unlock(&event->rwlock) != 0) {
-    fprintf(stderr, "Error unlocking read lock.\n");
-    return 1;
-  }
-
   free(buffer);
   return 0;
 }
