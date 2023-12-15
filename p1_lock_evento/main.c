@@ -91,7 +91,8 @@ int iterateFiles(char* directoryPath) {
   while ((entry = readdir(dir)) != NULL) {
     if (strstr(entry->d_name, ".job") != NULL) {
       if (activeProcesses == global_num_proc) {
-        wait(&status);
+        if (wait(&status) == ERROR)
+          return ERROR;
         printf("The process %d has finished because of the WAIT.\n", status);
         activeProcesses--;
       }

@@ -1,5 +1,6 @@
 #include "auxFunctions.h"
 #include "main.h"
+#include "eventlist.h"
 
 #include <stdio.h>
 #include <errno.h>
@@ -72,4 +73,42 @@ int writeFile(int fd, char* buffer) {
     }
 
     return 0;
+}
+
+void freeMutexes(struct Event* event, size_t num_rows, size_t num_cols) {
+    int num_seats = (int)(num_rows * num_cols);
+
+    for (int i = 0; i < num_seats; i++) {
+        if (pthread_mutex_destroy(&event->seatsLock[i]) != 0) {
+            fprintf(stderr, "Error destroying mutex %d\n", i);
+        }
+    }
+    free(event->seatsLock);
+}
+
+void switchPositions(size_t* firstVector, size_t* secondVector, size_t i, size_t j) {
+  size_t temp = firstVector[i];
+  firstVector[i] = firstVector[j];
+  firstVector[j] = temp;
+
+  temp = secondVector[i];
+  secondVector[i] = secondVector[j];
+  secondVector[j] = temp;
+}
+
+int sortVectors(size_t num_seats, size_t* firstVector, size_t* secondVector) {
+  for (size_t i = 0; i < num_seats - 1; i++) {
+    for (size_t j = 0; j < num_seats - i - 1; j++) {
+      if (firstVector[j] > firstVector[j + 1]) {
+          switchPositions(firstVector, secondVector, j, j + 1);
+      }
+      else if (firstVector[j] == firstVector[j + 1] && secondVector[j] == secondVector[j + 1]) {
+        return 1;
+      }
+      else if (firstVector[j] == firstVector[j + 1] && secondVector[j] > secondVector[j + 1]) {
+          switchPositions(firstVector, secondVector, j, j + 1);
+      }
+    }
+  }
+  return 0;
 }

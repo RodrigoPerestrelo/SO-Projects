@@ -1,4 +1,5 @@
 #include "eventlist.h"
+#include "auxFunctions.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -42,6 +43,7 @@ static void free_event(struct Event* event) {
     fprintf(stderr, "Erro ao destruir o mutex do evento\n");
   }
 
+  freeMutexes(event, event->rows, event->cols);
   free(event->data);
   free(event);
 }

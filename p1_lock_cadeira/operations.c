@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 #include "eventlist.h"
 #include "teste.h"
@@ -163,16 +164,16 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
   }
 
   pthread_rwlock_rdlock(&event->rwlock);
-  for (size_t i = 0; i < num_seats; i++) {
-    pthread_mutex_lock(&event->seatsLock[seat_index(event, xs[i], ys[i])]);
-  }
-  pthread_mutex_lock(&event->mutex);
-  unsigned int reservation_id = ++event->reservations;
-    pthread_mutex_unlock(&event->mutex);
+
+  unsigned int myValue = atomic_load(&event->reservations);
+  unsigned int newId = myValue + 1;
+  atomic_store(&event->reservations, newId);
   size_t i = 0;
   for (; i < num_seats; i++) {
     size_t row = xs[i];
     size_t col = ys[i];
+    pthread_mutex_lock(&event->seatsLock[seat_index(event, row, col)]);
+
 
     if (row <= 0 || row > event->rows || col <= 0 || col > event->cols) {
       fprintf(stderr, "Invalid seat\n");
@@ -184,16 +185,15 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
       break;
     }
 
-    *get_seat_with_delay(event, seat_index(event, row, col)) = reservation_id;
-  }
 
+    *get_seat_with_delay(event, seat_index(event, row, col)) = newId;
+  }
+  
   // If the reservation was not successful, free the seats that were reserved.
   if (i < num_seats) {
-    event->reservations--;
-    for (size_t j = 0; j < i; j++) {
+    //event->reservations--;
+    for (size_t j = 0; j < i + 1; j++) {
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
-    }
-    for (size_t j = 0; j < num_seats; j++) {
       pthread_mutex_unlock(&event->seatsLock[seat_index(event, xs[j], ys[j])]);
     }
     pthread_rwlock_unlock(&event->rwlock);

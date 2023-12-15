@@ -3,10 +3,11 @@
 
 #include <stddef.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 struct Event {
   unsigned int id;            /// Event id
-  unsigned int reservations;  /// Number of reservations for the event.
+  atomic_uint reservations;  /// Number of reservations for the event.
   pthread_mutex_t mutex;
   pthread_rwlock_t rwlock;
   pthread_mutex_t *seatsLock;
