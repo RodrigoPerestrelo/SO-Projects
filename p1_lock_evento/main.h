@@ -1,10 +1,11 @@
 #ifndef EMS_MAIN_H
 #define EMS_MAIN_H
 
+#include "constants.h"
+
 #include <stdio.h>
 #include <pthread.h>
 #include <dirent.h>
-#include "constants.h"
 
 #define BARRIER 1
 

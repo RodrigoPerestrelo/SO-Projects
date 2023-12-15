@@ -1,13 +1,11 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <pthread.h>
-
 #include "eventlist.h"
 #include "auxFunctions.h"
 #include "main.h"
 
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <pthread.h>
 
 #define BUFFERSIZE 1024
 #define IDMAX 128
@@ -57,7 +55,7 @@ static size_t seat_index(struct Event* event, size_t row, size_t col) { return (
 
 int ems_init(unsigned int delay_ms) {
   if (event_list != NULL) {
-    fprintf(stderr, "EMS state has already been initialized\n");
+    fprintf(stderr, "EMS state has already been initialized.\n");
     return 1;
   }
 
@@ -69,7 +67,7 @@ int ems_init(unsigned int delay_ms) {
 
 int ems_terminate() {
   if (event_list == NULL) {
-    fprintf(stderr, "EMS state must be initialized\n");
+    fprintf(stderr, "EMS state must be initialized.\n");
     return 1;
   }
 
@@ -79,18 +77,18 @@ int ems_terminate() {
 
 int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   if (event_list == NULL) {
-    fprintf(stderr, "EMS state must be initialized\n");
+    fprintf(stderr, "EMS state must be initialized.\n");
     return 1;
   }
 
   if (pthread_rwlock_wrlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Erro ao obter a trava de escrita\n");
+    fprintf(stderr, "Error locking write lock.\n");
     return 1;
   }
   if (get_event_with_delay(event_id) != NULL) {
-    fprintf(stderr, "Event already exists\n");
+    fprintf(stderr, "Event already exists.\n");
     if (pthread_rwlock_unlock(&global_rwlock) != 0) {
-      fprintf(stderr, "Erro ao liberar a trava\n");
+      fprintf(stderr, "Error unlocking write lock.\n");
       return 1;
     }
     return 1;
@@ -99,9 +97,9 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   struct Event* event = malloc(sizeof(struct Event));
 
   if (event == NULL) {
-    fprintf(stderr, "Error allocating memory for event\n");
+    fprintf(stderr, "Error allocating memory for event.\n");
     if (pthread_rwlock_unlock(&global_rwlock) != 0) {
-      fprintf(stderr, "Erro ao liberar a trava\n");
+      fprintf(stderr, "Error unlocking write lock.\n");
       return 1;
     }
     return 1;
@@ -112,20 +110,19 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   event->cols = num_cols;
   event->reservations = 0;
   if (pthread_mutex_init(&event->mutex, NULL) != 0) {
-    fprintf(stderr, "Erro ao inicializar o mutex do evento\n");
+    fprintf(stderr, "Error initializing event mutex\n");
     return 1;
   }
   if (pthread_rwlock_init(&event->rwlock, NULL) != 0) {
-    fprintf(stderr, "Erro ao inicializar a read-write lock do evento\n");
+    fprintf(stderr, "Error initializing event read-write lock\n");
     return 1;
   }
   event->data = malloc(num_rows * num_cols * sizeof(unsigned int));
-
   if (event->data == NULL) {
     fprintf(stderr, "Error allocating memory for event data\n");
     free(event);
     if (pthread_rwlock_unlock(&global_rwlock) != 0)
-      fprintf(stderr, "Erro ao liberar a trava\n");
+      fprintf(stderr, "Error unlocking write lock.\n");
     return 1;
   }
 
@@ -134,19 +131,19 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   }
 
   if (append_to_list(event_list, event) != 0) {
-    fprintf(stderr, "Error appending event to list\n");
+    fprintf(stderr, "Error appending event to list.\n");
     free(event->data);
     free(event);
     if (pthread_rwlock_unlock(&global_rwlock) != 0)
-      fprintf(stderr, "Erro ao liberar a trava\n");
+      fprintf(stderr, "Error unlocking write lock.\n");
     if (pthread_rwlock_destroy(&event->rwlock) != 0)
-        fprintf(stderr, "Erro ao destruir a read-write lock do evento\n");
+        fprintf(stderr, "Error destroying event read-write lock\n");
     if (pthread_mutex_destroy(&event->mutex) != 0)
-        fprintf(stderr, "Erro ao destruir o mutex do evento\n");
+        fprintf(stderr, "Error destroying event mutex\n");
     return 1;
   }
   if (pthread_rwlock_unlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Erro ao liberar a trava\n");
+    fprintf(stderr, "Error unlocking write lock.\n");
     return 1;
   }
 
@@ -155,27 +152,27 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
 int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys) {
   if (event_list == NULL) {
-    fprintf(stderr, "EMS state must be initialized\n");
+    fprintf(stderr, "EMS state must be initialized.\n");
     return 1;
   }
 
   if (pthread_rwlock_rdlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Erro ao obter a read lock global\n");
+    fprintf(stderr, "Error locking read lock.\n");
     return 1;
   }
   struct Event* event = get_event_with_delay(event_id);
   if (pthread_rwlock_unlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Erro ao liberar a read lock global\n");
+    fprintf(stderr, "Error unlocking read lock.\n");
     return 1;
   }
 
   if (event == NULL) {
-    fprintf(stderr, "Event not found\n");
+    fprintf(stderr, "Event not found.\n");
     return 1;
   }
 
   if (pthread_rwlock_wrlock(&event->rwlock) != 0) {
-    fprintf(stderr, "Erro ao obter a write lock do evento\n");
+    fprintf(stderr, "Error locking write lock.\n");
     return 1;
   }
   unsigned int reservation_id = ++event->reservations;
@@ -185,12 +182,12 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     size_t col = ys[i];
 
     if (row <= 0 || row > event->rows || col <= 0 || col > event->cols) {
-      fprintf(stderr, "Invalid seat\n");
+      fprintf(stderr, "Invalid seat.\n");
       break;
     }
 
     if (*get_seat_with_delay(event, seat_index(event, row, col)) != 0) {
-      fprintf(stderr, "Seat already reserved\n");
+      fprintf(stderr, "Seat already reserved.\n");
       break;
     }
 
@@ -204,54 +201,55 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
     }
     if (pthread_rwlock_unlock(&event->rwlock) != 0)
-      fprintf(stderr, "Erro ao desbloquear a read-write lock do evento\n");
+      fprintf(stderr, "Error unlocking write lock.\n");
     return 1;
   }
   if (pthread_rwlock_unlock(&event->rwlock) != 0) {
-    fprintf(stderr, "Erro ao desbloquear a read-write lock do evento\n");
+    fprintf(stderr, "Error unlocking write lock.\n");
     return 1;
   }
+
   return 0;
 }
 
 int ems_show(unsigned int event_id, int fdWrite) {
   if (event_list == NULL) {
-    fprintf(stderr, "EMS state must be initialized\n");
+    fprintf(stderr, "EMS state must be initialized.\n");
     return 1;
   }
 
   if (pthread_rwlock_rdlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Erro ao obter a read lock global\n");
+    fprintf(stderr, "Error locking read lock.\n");
     return 1;
   }
   struct Event* event = get_event_with_delay(event_id);
   if (pthread_rwlock_unlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Erro ao desbloquear a read-write lock global\n");
+    fprintf(stderr, "Error unlocking read lock.\n");
     return 1;
   }
 
   if (event == NULL) {
-    fprintf(stderr, "Event not found\n");
+    fprintf(stderr, "Event not found.\n");
     return 1;
   }
 
   char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 2);
   if (buffer == NULL) {
-    fprintf(stderr, "Erro ao alocar memória para o buffer\n");
+    fprintf(stderr, "Error allocating memory for buffer.\n");
     return 1;
   }
 
-  char *current = buffer;  // Ponteiro auxiliar para rastrear a posição atual
+  char *current = buffer;  // Auxiliar pointer to the current position in the buffer
 
   if (pthread_rwlock_rdlock(&event->rwlock) != 0) {
-    fprintf(stderr, "Erro ao obter a read lock do evento\n");
+    fprintf(stderr, "Error locking read lock.\n");
     return 1;
   }
   for (size_t i = 1; i <= event->rows; i++) {
     for (size_t j = 1; j <= event->cols; j++) {
       unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));
-      int written = snprintf(current, 2, "%u", *seat);  // Use snprintf para evitar estouro de buffer
-      current += written;  // Atualizar o ponteiro auxiliar
+      int written = snprintf(current, 2, "%u", *seat);
+      current += written;  // Update the current position in the buffer
 
       if (j < event->cols) {
           int space_written = snprintf(current, 2, " ");
@@ -262,24 +260,25 @@ int ems_show(unsigned int event_id, int fdWrite) {
     current += newline_written;
   }
 
-  *current = '\n';
+  *current = '\n'; // Add newline at the end of the buffer
   current++;
-  *current = '\0';  // Adicionar terminador nulo no final do buffer
+  *current = '\0';  // Add null terminator at the end of the buffer
   if (pthread_mutex_lock(&global_mutex) != 0) {
-    fprintf(stderr, "Erro ao obter o mutex global\n");
+    fprintf(stderr, "Error locking global mutex.\n");
     return 1;
   }
 
   writeFile(fdWrite, buffer);
 
   if (pthread_mutex_unlock(&global_mutex) != 0) {
-    fprintf(stderr, "Erro ao liberar o mutex global\n");
+    fprintf(stderr, "Error unlocking global mutex.\n");
     return 1;
   }
   if (pthread_rwlock_unlock(&event->rwlock) != 0) {
-    fprintf(stderr, "Erro ao desbloquear a read-write lock do evento\n");
+    fprintf(stderr, "Error unlocking read lock.\n");
     return 1;
   }
+
   free(buffer);
   return 0;
 }
@@ -287,41 +286,44 @@ int ems_show(unsigned int event_id, int fdWrite) {
 
 int ems_list_events(int fdWrite) {
   if (event_list == NULL) {
-    fprintf(stderr, "EMS state must be initialized\n");
+    fprintf(stderr, "EMS state must be initialized.\n");
     return 1;
   }
 
   if (pthread_rwlock_rdlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Erro ao obter a read lock global\n");
+    fprintf(stderr, "Error locking read lock.\n");
     return 1;
   }
+
   if (event_list->head == NULL) {
     if (pthread_rwlock_unlock(&global_rwlock) != 0) {
-        fprintf(stderr, "Erro ao desbloquear a read-write lock global\n");
+        fprintf(stderr, "Error unlocking read lock.\n");
         return 1;
     }
     if (pthread_mutex_lock(&global_mutex) != 0) {
-        fprintf(stderr, "Erro ao obter o mutex global\n");
+        fprintf(stderr, "Error locking global mutex.\n");
         return 1;
     }
 
     writeFile(fdWrite, "No events\n");
 
     if (pthread_mutex_unlock(&global_mutex) != 0) {
-        fprintf(stderr, "Erro ao desbloquear o mutex global\n");
+        fprintf(stderr, "Error unlocking global mutex.\n");
         return 1;
     }
+
     return 0;
   }
+
   struct ListNode* current = event_list->head;
   if (pthread_rwlock_unlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Erro ao desbloquear o mutex global\n");
+    fprintf(stderr, "Error unlocking read lock.\n");
     return 1;
   }
 
   char *buffer = malloc(sizeof(char) * BUFFERSIZE);
   if (buffer == NULL) {
-    fprintf(stderr, "Erro ao alocar memória para o buffer\n");
+    fprintf(stderr, "Error allocating memory for buffer.\n");
     return 1;
   }
 
@@ -329,15 +331,20 @@ int ems_list_events(int fdWrite) {
 
   while (current != NULL) {
     if (pthread_rwlock_rdlock(&global_rwlock) != 0) {
-      fprintf(stderr, "Erro ao obter a read lock global\n");
+      fprintf(stderr, "Error locking read lock.\n");
       return 1;
     }
+
     char *id = malloc(IDMAX*sizeof(char));
+    if (id == NULL) {
+      fprintf(stderr, "Error allocating memory for id.\n");
+      return 1;
+    }
     sprintf(id, "%u\n", (current->event)->id);
     current = current->next;
     
     if (pthread_rwlock_unlock(&global_rwlock) != 0) {
-    fprintf(stderr, "Erro ao desbloquear a read-write lock global\n");
+    fprintf(stderr, "Error unlocking read lock.\n");
     return 1;
     }
     strcat(buffer, "Event: ");
@@ -346,14 +353,14 @@ int ems_list_events(int fdWrite) {
   }
 
   if (pthread_mutex_lock(&global_mutex) != 0) {
-    fprintf(stderr, "Erro ao obter o mutex global\n");
+    fprintf(stderr, "Error locking global mutex.\n");
     return 1;
   }
 
   writeFile(fdWrite, buffer);
 
   if (pthread_mutex_unlock(&global_mutex) != 0) {
-    fprintf(stderr, "Erro ao liberar o mutex global\n");
+    fprintf(stderr, "Error unlocking global mutex.\n");
     return 1;
   }
   free(buffer);

@@ -1,3 +1,8 @@
+#include "operations.h"
+#include "parser.h"
+#include "main.h"
+#include "auxFunctions.h"
+
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,38 +16,32 @@
 #include <sys/wait.h>
 #include <pthread.h>
 
-#include "operations.h"
-#include "parser.h"
-#include "main.h"
-#include "auxFunctions.h"
-
 #define ERROR -1
 
 int global_num_proc = 0;
 int global_num_threads = 0;
 
 
-
-/* Função main que faz o processamento dos argumentos e chama as funções que fazem o processamento dos ficheiros */
+/* Main function that processes the arguments and calls the functions that process the files */
 int main(int argc, char *argv[]) {
   unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
 
-  //Se o número de argumentos for diferente de 4 ou 5, o input é inválido
+  //If the number of arguments is different from 4 or 5, the input is invalid
   if (argc != 4 && argc != 5) {
     fprintf(stderr, "Invalid arguments. See HELP for usage\n");
     return 1;
   }
 
-  // Se o número de processos for inválido, o input é inválido
+  //If the number of processes is invalid, the input is invalid
   char *endptr_proc;
   long int num_proc = strtol(argv[2], &endptr_proc, 10);
   if (*endptr_proc != '\0' || num_proc > INT_MAX || num_proc < 1) {
-    fprintf(stderr, "Invalid proc value or value too large\n");
+    fprintf(stderr, "Invalid processes value or value too large\n");
     return 1;
   }
   global_num_proc = (int)num_proc;
 
-  // Se o número de threads for inválido, o input é inválido
+  //If the number of threads is invalid, the input is invalid
   char *endptr_threads;
   long int num_threads = strtol(argv[3], &endptr_threads, 10);
   if (*endptr_threads != '\0' || num_threads > INT_MAX || num_threads < 1) {
@@ -51,7 +50,7 @@ int main(int argc, char *argv[]) {
   }
   global_num_threads = (int)num_threads;
 
-  // Se houver quinto argumento, atribui-se o valor do delay
+  // If there is a fifth argument, the delay value is assigned
   if (argc == 5) {
     char *endptr;
     unsigned long int delay = strtoul(argv[4], &endptr, 10);
@@ -74,13 +73,12 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-
-/* Função que itera sobre os ficheiros de uma diretoria */
+/* Function that iterates over the files of a directory */
 int iterateFiles(char* directoryPath) {
   DIR *dir;
   struct dirent *entry;
 
-  // Abrir diretoria
+  // Open directory
   if ((dir = opendir(directoryPath)) == NULL) {
       perror("Error opening directory");
       return ERROR;
@@ -89,13 +87,12 @@ int iterateFiles(char* directoryPath) {
   int activeProcesses = 0;
   int status;
 
-  // Iterar sobre os ficheiros da diretoria
+  // Iterate over the files of the directory
   while ((entry = readdir(dir)) != NULL) {
     if (strstr(entry->d_name, ".job") != NULL) {
       if (activeProcesses == global_num_proc) {
         wait(&status);
-        //printf("%d \n",status);
-        printf("O processo %d terminou devido ao wait.\n", status);
+        printf("The process %d has finished because of the WAIT.\n", status);
         activeProcesses--;
       }
       pid_t pid = fork();
@@ -104,7 +101,7 @@ int iterateFiles(char* directoryPath) {
         closedir(dir);
         return ERROR;
 
-      } else if (pid == 0) { // Processo filho
+      } else if (pid == 0) { // Child process
         char *pathJobs = pathingJobs(directoryPath, entry);
         char *pathOut = pathingOut(directoryPath, entry);
         if (process_file(pathJobs, pathOut) != 0) {
@@ -116,18 +113,17 @@ int iterateFiles(char* directoryPath) {
         free(pathOut);
         exit(0);
 
-      } else { // Processo pai
+      } else { // Parent process
         ++activeProcesses;
-        printf("Numero de processos ativos:%d \n", activeProcesses);
+        printf("Number of active processes: %d.\n", activeProcesses);
       }
     }
   }
-  printf("O PAI VAI COMECAR A AGUARDAR CONCLUSAO.\n Numero de processos ativos:%d \n", activeProcesses);
-  // Aguardar a conclusão de todos os processos filhos restantes
+  printf("THE FATHER WILL START WAITING FOR THE CONCLUSION.\n Number of active processes:%d \n", activeProcesses);
+  // Wait for all remaining child processes to finish
   while (activeProcesses > 0) {
       wait(&status);
-      //printf("%d \n",status);
-      printf("O processo %d terminou pq o pai aguardou a sua conclusão.\n", status);
+      printf("The process %d has finished because the father waited for its conclusion.\n", status);
       activeProcesses--;
   }
 
@@ -136,37 +132,44 @@ int iterateFiles(char* directoryPath) {
   return 0;
 }
 
-/* Função que processa o ficheiro de input e chama as funções que fazem as operações */
+/* Function that processes the input file and calls the functions that do the operations */
 int process_file(char* pathJobs, char* pathOut) {
 
+  // Open input file
   int fdRead = open(pathJobs, O_RDONLY);
   if (fdRead == ERROR) {
-      perror("Erro ao abrir o arquivo de entrada");
-      return ERROR; // Ou outro código de erro apropriado
+      perror("Error opening input file");
+      return ERROR;
   }
 
+  // Open output file
   int fdWrite = open(pathOut, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   if (fdWrite == ERROR) {
-      perror("Erro ao abrir o arquivo de saída");
-      close(fdRead); // Fechar o arquivo de entrada antes de retornar
-      return ERROR; // Ou outro código de erro apropriado
+      perror("Error opening output file");
+      close(fdRead);
+      return ERROR;
   }
 
   size_t xs[global_num_threads][MAX_RESERVATION_SIZE];
   size_t ys[global_num_threads][MAX_RESERVATION_SIZE];
   pthread_mutex_t mutex;
+
   if (pthread_mutex_init(&mutex, NULL) != 0) {
-    perror("Erro ao inicializar o mutex");
+    perror("Error initializing mutex");
     close(fdRead);
     close(fdWrite);
     return ERROR;
   }
+
   int barrierFlag = 0;
   unsigned int waitingThread = 0;
   unsigned int delayWait = 0;
+
+  // Initialize waitFlags
   int waitFlags[global_num_threads + 1];
   for (int i = 0; i <= global_num_threads; i++)
     waitFlags[i] = 0;
+  
   pthread_t threads[global_num_threads];
   ThreadParameters threadParameters[global_num_threads];
 
@@ -185,38 +188,38 @@ int process_file(char* pathJobs, char* pathOut) {
       threadParameters[i].thread_id = i+1;
       threadParameters[i].waitFlags = waitFlags;
       if (pthread_create(&threads[i], NULL, thread_execute, &threadParameters[i]) != 0) {
-        perror("Erro ao criar thread\n");
-        // Lidar com a falha na criação da thread, por exemplo, encerrar threads anteriores e liberar recursos
+        perror("Error creating thread");
+        // Deal with the failure to create the thread, freeing resources and terminating previous threads
         if (close(fdRead) == ERROR) {
-          perror("Erro ao fechar o arquivo de leitura");
+          perror("Error closing input file.");
           return ERROR;
         }
         if (close(fdWrite) == ERROR) {
-          perror("Erro ao fechar o arquivo de escrita");
+          perror("Error closing output file.");
           return ERROR;
         }
         if (pthread_mutex_destroy(&mutex) != 0) {
-          fprintf(stderr, "Erro: Falha na destruição do mutex\n");
+          fprintf(stderr, "Error: Failed to destroy mutex.\n");
         }
         return ERROR;
       }
     }
     for (int i = 0; i < global_num_threads; i++) {
       if (pthread_join(threads[i], (void*)&resultadoThread) != 0) {
-        perror("Erro ao aguardar a conclusão da thread");
-        // Lidar com a falha na espera pela thread, por exemplo, encerrar threads anteriores e liberar recursos
+        perror("Error waiting for thread to finish.");
+        // Deal with the failure to join the thread, freeing resources and terminating previous threads
         if (close(fdRead) == ERROR) {
-          perror("Erro ao fechar o arquivo de leitura");
+          perror("Error closing input file.");
           return ERROR;
         }
         if (close(fdWrite) == ERROR) {
-          perror("Erro ao fechar o arquivo de escrita");
+          perror("Error closing output file.");
           return ERROR;
         }
         if (pthread_mutex_destroy(&mutex) != 0) {
-          fprintf(stderr, "Erro: Falha na destruição do mutex\n");
+          fprintf(stderr, "Error: Failed to destroy mutex.\n");
         }
-        return ERROR; // Ou outro código de erro apropriado
+        return ERROR;
       }
       if (resultadoThread == BARRIER) {
         flagBarrier = 1;
@@ -224,29 +227,30 @@ int process_file(char* pathJobs, char* pathOut) {
         return ERROR;
       }
     }
+    // If there was a barrier, the threads are restarted
     if (!flagBarrier) break;
     else barrierFlag = 0;
     
   }
 
   if (close(fdRead) == ERROR) {
-    perror("Erro ao fechar o arquivo de leitura");
+    perror("Error closing input file.");
     return ERROR;
   }
   if (close(fdWrite) == ERROR) {
-    perror("Erro ao fechar o arquivo de escrita");
+    perror("Error closing output file.");
     return ERROR;
   }
   if (pthread_mutex_destroy(&mutex) != 0) {
-    fprintf(stderr, "Erro: Falha na destruição do mutex\n");
+    fprintf(stderr, "Error: Failed to destroy mutex.\n");
     return ERROR;
   }
-  ems_terminate();
 
+  ems_terminate();
   return 0;
 }
 
-
+/* Function that executes the commands */
 void* thread_execute(void* args) {
   ThreadParameters *parameters = (ThreadParameters*)args;
   int fdRead = (parameters)->fdRead;
@@ -260,17 +264,17 @@ void* thread_execute(void* args) {
     size_t num_rows, num_columns, num_coords;
 
     if (pthread_mutex_lock(mutex) != 0) {
-      fprintf(stderr, "Erro ao bloquear o mutex\n");
+      fprintf(stderr, "Error: Failed to lock mutex.\n");
       return (void*)ERROR;
     }
     if (parameters->waitFlags[parameters->thread_id] == 1) {
       if (pthread_mutex_unlock(mutex) != 0) {
-        fprintf(stderr, "Erro ao desbloquear o mutex\n");
+        fprintf(stderr, "Error: Failed to unlock mutex.\n");
         return (void*)ERROR;
       }
       ems_wait(*parameters->delayWait);
       if (pthread_mutex_lock(mutex) != 0) {
-        fprintf(stderr, "Erro ao bloquear o mutex\n");
+        fprintf(stderr, "Error: Failed to lock mutex.\n");
         return (void*)ERROR;
       }
       parameters->waitFlags[parameters->thread_id] = 0;
@@ -278,27 +282,29 @@ void* thread_execute(void* args) {
 
     if (*parameters->barrierFlag) {
       if (pthread_mutex_unlock(mutex) != 0) {
-        fprintf(stderr, "Erro ao desbloquear o mutex\n");
+        fprintf(stderr, "Error: Failed to unlock mutex.\n");
         return (void*)ERROR;
       }
+
       return (void*)BARRIER;
     }
 
+    // Read command
     int command = (int)get_next(fdRead);
     switch (command) {
         case CMD_CREATE:
           if (parse_create(fdRead, &event_id, &num_rows, &num_columns) != 0) {
-            fprintf(stderr, "Invalid command. See HELP for usage\n");
+            fprintf(stderr, "Invalid command. See HELP for usage.\n");
             continue;
           }
 
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr, "Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
 
           if (ems_create(event_id, num_rows, num_columns)) {
-            fprintf(stderr, "Failed to create event\n");
+            fprintf(stderr, "Failed to create event.\n");
           }
 
           break;
@@ -307,60 +313,60 @@ void* thread_execute(void* args) {
           num_coords = parse_reserve(fdRead, MAX_RESERVATION_SIZE, &event_id, xs, ys);
 
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr, "Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
 
           if (num_coords == 0) {
-            fprintf(stderr, "Invalid command. See HELP for usage\n");
+            fprintf(stderr, "Invalid command. See HELP for usage.\n");
             continue;
           }
 
           if (ems_reserve(event_id, num_coords, xs, ys)) {
-            fprintf(stderr, "Failed to reserve seats\n");
+            fprintf(stderr, "Failed to reserve seats.\n");
           }
 
           break;
 
         case CMD_SHOW:
           if (parse_show(fdRead, &event_id) != 0) {
-            fprintf(stderr, "Invalid command. See HELP for usage\n");
+            fprintf(stderr, "Invalid command. See HELP for usage.\n");
             continue;
           }
 
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr, "Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
 
           if (ems_show(event_id, fdWrite)) {
-            fprintf(stderr, "Failed to show event\n");
+            fprintf(stderr, "Failed to show event.\n");
           }
 
           break;
 
         case CMD_LIST_EVENTS:
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr, "Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
 
           if (ems_list_events(fdWrite)) {
-            fprintf(stderr, "Failed to list events\n");
+            fprintf(stderr, "Failed to list events.\n");
           }
 
           break;
 
         case CMD_WAIT:
           if (parse_wait(fdRead, &(*parameters->delayWait), &(*parameters->waitingThread))) {
-            fprintf(stderr, "Invalid command. See HELP for usage\n");
+            fprintf(stderr, "Invalid command. See HELP for usage.\n");
             continue;
           }
 
           if (*parameters->delayWait > 0 && *parameters->waitingThread == 0) {
             ems_wait(*parameters->delayWait);
             if (pthread_mutex_unlock(mutex) != 0) {
-              fprintf(stderr, "Erro ao desbloquear o mutex\n");
+              fprintf(stderr, "Error: Failed to unlock mutex.\n");
               return (void*)ERROR;
             }
             break;
@@ -370,7 +376,7 @@ void* thread_execute(void* args) {
           }
           
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr, "Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
 
@@ -378,15 +384,15 @@ void* thread_execute(void* args) {
 
         case CMD_INVALID:
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr,"Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
-          fprintf(stderr, "Invalid command. See HELP for usage\n");
+          fprintf(stderr, "Invalid command. See HELP for usage.\n");
           break;
 
         case CMD_HELP:
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr, "Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
           printf(
@@ -404,20 +410,20 @@ void* thread_execute(void* args) {
         case CMD_BARRIER:
           *parameters->barrierFlag = BARRIER;
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr, "Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
           return (void*)BARRIER;
         case CMD_EMPTY:
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr, "Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
           break;
 
         case EOC:
           if (pthread_mutex_unlock(mutex) != 0) {
-            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            fprintf(stderr, "Error: Failed to unlock mutex.\n");
             return (void*)ERROR;
           }
           return (void*)0;

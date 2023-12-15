@@ -1,5 +1,6 @@
 #include "auxFunctions.h"
 #include "main.h"
+
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
@@ -7,16 +8,14 @@
 #include <stdlib.h>
 #include <dirent.h>
 
-#define INCREMENTO 128
-
-/* Função que cria o path para o ficheiro de input */
+/* Function that creates the path to the input file */
 char *pathingJobs(char *directoryPath, struct dirent *entry) {
 
   size_t length = strlen(directoryPath) + strlen(entry->d_name) + 2;
   char *pathJobs = (char *)malloc(length);
 
   if (pathJobs == NULL) {
-    fprintf(stderr, "Erro: Falha na alocação de memória\n");
+    fprintf(stderr, "Error: Failed to allocate memory\n");
     return NULL;
   }
 
@@ -25,52 +24,52 @@ char *pathingJobs(char *directoryPath, struct dirent *entry) {
   return pathJobs;
 }
 
-/* Função que cria o path para o ficheiro de output */
+/* Function that creates the path to the output file */
 char* pathingOut(const char *directoryPath, struct dirent *entry) {
   const char *extension_to_remove = ".jobs";
   const char *new_extension = ".out";
 
-  // Encontrar a posição da extensão ".jobs" na string
+  // Find the position of the ".jobs" extension in the string
   const char *extension_position = strstr(entry->d_name, extension_to_remove);
 
-  // Calcular o comprimento da parte do nome do arquivo antes da extensão ".jobs"
+  // Calculate the length of the part of the filename before the ".jobs" extension
   size_t directory_length = strlen(directoryPath);
   size_t prefix_length = strlen(entry->d_name) - strlen(extension_position); //entry->d_name é um apontador para o inicio da string e extension_position é um apontador para onde o .jobs começa
 
-  // Alocar dinamicamente memória para a nova string
+  // Dinamically allocate memory for the new string
   char *pathFileOut = (char *)malloc(directory_length + prefix_length + strlen(new_extension) + 2);
 
   if (pathFileOut == NULL) {
-      fprintf(stderr, "Erro: Falha na alocação de memória\n");
+      fprintf(stderr, "Error: Failed to allocate memory\n");
       return NULL;
   }
 
-  // Copiar o diretório para a nova string
-  strcpy(pathFileOut, directoryPath); //copia a diretoria
-  strcat(pathFileOut, "/"); //adiciona a barra
-  strncat(pathFileOut, entry->d_name, prefix_length); //adiciona até da à diretoria com a barra o entry->d_name apenas até à posição do prefixo
-  strcat(pathFileOut, new_extension); //adiciona a nova extensão
+  // Copy the directory path and the filename prefix to the new string
+  strcpy(pathFileOut, directoryPath);
+  strcat(pathFileOut, "/");
+  strncat(pathFileOut, entry->d_name, prefix_length);
+  strcat(pathFileOut, new_extension);
 
   return pathFileOut;
 }
 
-
+/* Functtion that writes to the output file */
 int writeFile(int fd, char* buffer) {
-    size_t len = strlen(buffer); // Correção: use size_t para o comprimento
+    size_t len = strlen(buffer);
     size_t done = 0;
+
     while (len > 0) {
-        ssize_t bytes_written = write(fd, buffer + done, len); // Correção: use ssize_t para bytes_written
+        ssize_t bytes_written = write(fd, buffer + done, len);
 
         if (bytes_written < 0) {
-            fprintf(stderr, "write error: %s\n", strerror(errno));
+            fprintf(stderr, "Write error: %s\n", strerror(errno));
             return -1;
         }
 
-        /* might not have managed to write all, len becomes what remains */
-        len -= (size_t)bytes_written; // Correção: converta bytes_written para size_t
-        done += (size_t)bytes_written; // Correção: converta bytes_written para size_t
+        // might not have managed to write all, len becomes what remains
+        len -= (size_t)bytes_written;
+        done += (size_t)bytes_written;
     }
 
     return 0;
 }
-
