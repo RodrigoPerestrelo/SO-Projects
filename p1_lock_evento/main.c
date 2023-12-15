@@ -352,7 +352,7 @@ void* thread_execute(void* args) {
           break;
 
         case CMD_WAIT:
-          if (parse_wait(fdRead, &(*parameters->delayWait), &(*parameters->waitingThread)) == ERROR) {
+          if (parse_wait(fdRead, &(*parameters->delayWait), &(*parameters->waitingThread))) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }

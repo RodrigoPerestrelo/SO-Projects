@@ -302,21 +302,27 @@ void* thread_execute(void* args) {
           break;
 
         case CMD_WAIT:
-          if (parse_wait(fdRead, &(*parameters->delayWait), &(*parameters->waitingThread)) == -1) {
+          if (parse_wait(fdRead, &(*parameters->delayWait), &(*parameters->waitingThread))) {
             fprintf(stderr, "Invalid command. See HELP for usage\n");
             continue;
           }
 
           if (*parameters->delayWait > 0 && *parameters->waitingThread == 0) {
-            for (int i = 0; i <= global_num_threads; i++) {
-              parameters->waitFlags[i] = 1;
+            ems_wait(*parameters->delayWait);
+            if (pthread_mutex_unlock(mutex) != 0) {
+              fprintf(stderr, "Erro ao desbloquear o mutex\n");
+              return (void*)-1;
             }
+            break;
           }
           else if ((int)*parameters->waitingThread <= global_num_threads) {
             parameters->waitFlags[*parameters->waitingThread] = 1;
           }
-
-          pthread_mutex_unlock(mutex);
+          
+          if (pthread_mutex_unlock(mutex) != 0) {
+            fprintf(stderr, "Erro ao desbloquear o mutex\n");
+            return (void*)-1;
+          }
 
           break;
 
