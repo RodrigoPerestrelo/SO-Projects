@@ -1,5 +1,6 @@
 #include "api.h"
 #include "common/rw_aux.h"
+#include "common/constants.h"
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -54,10 +55,14 @@ int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const*
     return 1;
   }
 
-  writeFile(tx, request_pipe, strlen(request_pipe));
-  write(tx, "|", 1);
-  writeFile(tx, response_pipe, strlen(response_pipe));
+  char *buffer = malloc(sizeof(char) * MAX_PIPE_NAME * 2);
+  memset(buffer, '\0', MAX_PIPE_NAME * 2);
+  strncpy(buffer, request_pipe, MAX_PIPE_NAME);
+  strncpy(buffer + MAX_PIPE_NAME, response_pipe, MAX_PIPE_NAME);
 
+  writeFile(tx, buffer, sizeof(char) * MAX_PIPE_NAME * 2);
+
+  free(buffer);
   close(tx);
 
   return 0;
@@ -96,6 +101,7 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
   writeFile(fdReq, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
 
+  free(buffer);
   close(fdReq);
   //TODO: send create request to the server (through the request pipe) and wait for the response (through the response pipe)
   return 1;

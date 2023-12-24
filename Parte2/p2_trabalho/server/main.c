@@ -67,7 +67,7 @@ void* execute_client() {
       memcpy(&num_rows, buffer + sizeof(unsigned int), sizeof(size_t));
       memcpy(&num_cols, buffer + sizeof(unsigned int) + sizeof(size_t), sizeof(size_t));
 
-      printf("%u %ld %ld\n", event_id, num_rows, num_cols);
+      ems_create(event_id, num_rows, num_cols);
       close(fdReq);
       break;
     
@@ -136,14 +136,15 @@ int main(int argc, char* argv[]) {
       exit(EXIT_FAILURE);
     }
 
-    char *buffer = malloc(sizeof(char) * 1024);
-    char *bufferRequest = malloc(sizeof(char) * (1024));
-    char *bufferResponse = malloc(sizeof(char) * (1024));
+    char *buffer = malloc(sizeof(char) * (MAX_PIPE_NAME * 2));
+    char *bufferRequest = malloc(sizeof(char) * MAX_PIPE_NAME);
+    char *bufferResponse = malloc(sizeof(char) * MAX_PIPE_NAME);
     
     int tx = open(SERVER_FIFO, O_RDONLY);
 
-    readBuffer(tx, buffer, 1024);
-    splitString(buffer, bufferRequest, bufferResponse);
+    readBuffer(tx, buffer, MAX_PIPE_NAME * 2);
+    strncpy(bufferRequest, buffer, MAX_PIPE_NAME);
+    strncpy(bufferResponse, buffer + MAX_PIPE_NAME, MAX_PIPE_NAME);
 
     addToQueue(queue, bufferRequest, bufferResponse);
     pthread_cond_signal(&cond);
