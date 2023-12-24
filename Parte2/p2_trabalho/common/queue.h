@@ -2,7 +2,9 @@
 #define QUEUE_H
 
 typedef struct Node {
-    char data[256];
+    //O 100 tá mal, mas os pipes tao numa directoria com 55 carateres
+    char requestPipe[100];
+    char responsePipe[100];
     struct Node* next;
 } Node;
 
@@ -13,9 +15,9 @@ typedef struct Queue {
 
 Queue* initializeQueue();
 int isEmptyQueue(Queue* q);
-void addToQueue(Queue* q, const char* data);
+void addToQueue(Queue* q, const char* bufferRequest, const char* bufferResponse);
 void removeHeadQueue(Queue* q);
-char* getHeadQueue(Queue* q);
+Node* getHeadQueue(Queue* q);
 
 
 #endif

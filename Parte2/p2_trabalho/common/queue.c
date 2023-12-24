@@ -18,13 +18,14 @@ int isEmptyQueue(Queue* q) {
     return q->head == NULL;
 }
 
-void addToQueue(Queue* q, const char* data) {
+void addToQueue(Queue* q, const char* bufferRequest, const char* bufferResponse) {
     Node* newNode = (Node*) malloc(sizeof(Node));
     if (!newNode) {
         // Tratamento de erro: falha na alocação de memória
         return;
     }
-    strcpy(newNode->data, data);
+    strcpy(newNode->requestPipe, bufferRequest);
+    strcpy(newNode->responsePipe, bufferResponse);
     newNode->next = NULL;
 
     if (isEmptyQueue(q)) {
@@ -53,11 +54,11 @@ void removeHeadQueue(Queue* q) {
     free(temp);
 }
 
-char* getHeadQueue(Queue* q) {
+Node* getHeadQueue(Queue* q) {
     if (isEmptyQueue(q)) {
         // Tratamento de erro: fila vazia
         return NULL;
     }
     
-    return q->head->data;
+    return q->head;
 }

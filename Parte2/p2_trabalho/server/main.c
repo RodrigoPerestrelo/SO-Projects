@@ -16,7 +16,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#define BUFFERSIZE 1024
+#define BUFFERSIZE 40
 
 Queue *queue;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -24,16 +24,56 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 void* execute_client() {
 
-  printf("Entrei dentro do lock do mutex\n");
   pthread_cond_wait(&cond, &mutex);
-  printf("Recebi o signal\n");
 
-  char *info = getHeadQueue(queue);
-  printf("%s\n", info);
+  Node *head = getHeadQueue(queue);
+  char requestPipe[100];
+  strcpy(requestPipe, head->requestPipe);
+  char responsePipe[100];
+  strcpy(responsePipe, head->responsePipe);
+
   removeHeadQueue(queue);
+
 
   if (pthread_mutex_unlock(&mutex) != 0) {
     exit(EXIT_FAILURE);
+  }
+
+  while (1) {
+    char ch;
+    //se o open estiver de fora e eu não fechar a cada case, dá erro.
+    int fdReq = open(requestPipe, O_RDONLY);
+    //não sei porque não fica bloqueante aqui
+    if (read(fdReq, &ch, 1) != 1) {
+      perror("Error reading char.\n");
+      exit(EXIT_FAILURE);
+    }
+    switch (ch) {
+    case '1':
+      /* code */
+      break;
+    case '2':
+      close(fdReq);
+      return NULL;
+      break;
+    case '3':
+      unsigned int event_id;
+      size_t num_rows, num_cols;
+
+      char *buffer = malloc(sizeof(unsigned int) + (sizeof(size_t) * 2));
+      readBuffer(fdReq, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
+
+      memcpy(&event_id, buffer, sizeof(unsigned int));
+      memcpy(&num_rows, buffer + sizeof(unsigned int), sizeof(size_t));
+      memcpy(&num_cols, buffer + sizeof(unsigned int) + sizeof(size_t), sizeof(size_t));
+
+      printf("%u %ld %ld\n", event_id, num_rows, num_cols);
+      close(fdReq);
+      break;
+    
+    default:
+      break;
+    }
   }
 
   return NULL;
@@ -96,15 +136,22 @@ int main(int argc, char* argv[]) {
       exit(EXIT_FAILURE);
     }
 
-    char *buffer = malloc(sizeof(char) * BUFFERSIZE);
+    char *buffer = malloc(sizeof(char) * 1024);
+    char *bufferRequest = malloc(sizeof(char) * (1024));
+    char *bufferResponse = malloc(sizeof(char) * (1024));
+    
     int tx = open(SERVER_FIFO, O_RDONLY);
-    readBuffer(tx, buffer, BUFFERSIZE);
-    addToQueue(queue, buffer);
-    printf("Vou dar o signal\n");
-    pthread_cond_signal(&cond);
-    printf("Dei o signal\n");
 
+    readBuffer(tx, buffer, 1024);
+    splitString(buffer, bufferRequest, bufferResponse);
+
+    addToQueue(queue, bufferRequest, bufferResponse);
+    pthread_cond_signal(&cond);
+
+    free(bufferRequest);
+    free(bufferResponse);
     free(buffer);
+
     if (pthread_mutex_unlock(&mutex) != 0) {
       exit(EXIT_FAILURE);
     }

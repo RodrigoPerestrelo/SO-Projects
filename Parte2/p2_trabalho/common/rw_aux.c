@@ -15,8 +15,8 @@
 #include <errno.h>  // for errno and strerror
 
 /* Functtion that writes to the output file */
-int writeFile(int fd, char* buffer) {
-    size_t len = strlen(buffer);
+int writeFile(int fd, const char* buffer, size_t bufferSize) {
+    size_t len = bufferSize;  // Usando o bufferSize fornecido.
     size_t done = 0;
 
     while (len > 0) {
@@ -24,10 +24,8 @@ int writeFile(int fd, char* buffer) {
 
         if (bytes_written < 0) {
             fprintf(stderr, "Write error: %s\n", strerror(errno));
-            return -1;
         }
 
-        // might not have managed to write all, len becomes what remains
         len -= (size_t)bytes_written;
         done += (size_t)bytes_written;
     }
@@ -47,4 +45,28 @@ int readBuffer(int fd, char *buffer, size_t bufferSize) {
    }
 
    return 0;
+}
+
+void splitString(char *original, char *buffer1, char *buffer2) {
+    char *token;
+
+    char workingString[strlen(original) + 1];
+    strcpy(workingString, original);
+
+    token = strtok(workingString, "|");
+
+    if (token != NULL) {
+        strcpy(buffer1, token);
+        token = strtok(NULL, "|");
+        if (token != NULL) {
+            strcpy(buffer2, token);
+        } else {
+            // Em caso de formato inválido, deixe o buffer2 vazio
+            buffer2[0] = '\0';
+        }
+    } else {
+        // Em caso de formato inválido, deixe ambos os buffers vazios
+        buffer1[0] = '\0';
+        buffer2[0] = '\0';
+    }
 }
