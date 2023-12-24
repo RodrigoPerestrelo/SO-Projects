@@ -80,12 +80,11 @@ int ems_quit(void) {
   //TODO: close pipes
   close(fdReq);
 
-  return 1;
+  return 0;
 }
 
 int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
-  
   int fdReq = open(request_pipe, O_WRONLY);
 
   char ch = '3';
@@ -104,10 +103,47 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
   free(buffer);
   close(fdReq);
   //TODO: send create request to the server (through the request pipe) and wait for the response (through the response pipe)
-  return 1;
+  return 0;
 }
 
 int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys) {
+  
+  int fdReq = open(request_pipe, O_WRONLY);
+
+  char ch = '4';
+
+  if (write(fdReq, &ch, 1) != 1) {
+    perror("Error writing char.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  size_t size_event_id = sizeof(unsigned int);
+  size_t size_num_seats = sizeof(size_t);
+  size_t size_reservation_seat = sizeof(size_t);
+  size_t size_xs = sizeof(size_t) * MAX_RESERVATION_SIZE;
+  size_t size_ys = sizeof(size_t) * MAX_RESERVATION_SIZE;
+
+  size_t total_size = size_event_id + size_num_seats + size_xs + size_ys;
+
+  // Alocação de memória para o buffer
+  char *buffer = malloc(total_size);
+  if (buffer == NULL) {
+    perror("Erro ao alocar memória para o buffer");
+    exit(EXIT_FAILURE);
+  }
+  char *ptr = buffer;
+  memcpy(ptr, &event_id, size_event_id);
+  ptr += size_event_id;
+  memcpy(ptr, &num_seats, size_num_seats);
+
+  for (int i = 0; i < (int)num_seats; i++) {
+    ptr += size_reservation_seat;
+    memcpy(ptr, &xs[i], size_reservation_seat);
+    ptr += size_reservation_seat;
+    memcpy(ptr, &ys[i], size_reservation_seat);
+  }
+
+  writeFile(fdReq, buffer, total_size);
   //TODO: send reserve request to the server (through the request pipe) and wait for the response (through the response pipe)
   return 1;
 }

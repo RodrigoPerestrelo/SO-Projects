@@ -16,8 +16,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#define BUFFERSIZE 40
-
 Queue *queue;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
@@ -38,41 +36,73 @@ void* execute_client() {
   if (pthread_mutex_unlock(&mutex) != 0) {
     exit(EXIT_FAILURE);
   }
+  unsigned int event_id;
+  size_t num_rows, num_cols, num_seats;
+  size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
+  char *buffer;
+  int fdReq = open(requestPipe, O_RDONLY);
 
   while (1) {
     char ch;
-    //se o open estiver de fora e eu não fechar a cada case, dá erro.
-    int fdReq = open(requestPipe, O_RDONLY);
-    //não sei porque não fica bloqueante aqui
     if (read(fdReq, &ch, 1) != 1) {
       perror("Error reading char.\n");
       exit(EXIT_FAILURE);
     }
     switch (ch) {
-    case '1':
-      /* code */
-      break;
-    case '2':
-      close(fdReq);
-      return NULL;
-      break;
-    case '3':
-      unsigned int event_id;
-      size_t num_rows, num_cols;
+      case '2':
 
-      char *buffer = malloc(sizeof(unsigned int) + (sizeof(size_t) * 2));
-      readBuffer(fdReq, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
+        close(fdReq);
+        return NULL;
+        break;
+      case '3':
 
-      memcpy(&event_id, buffer, sizeof(unsigned int));
-      memcpy(&num_rows, buffer + sizeof(unsigned int), sizeof(size_t));
-      memcpy(&num_cols, buffer + sizeof(unsigned int) + sizeof(size_t), sizeof(size_t));
+        buffer = malloc(sizeof(unsigned int) + (sizeof(size_t) * 2));
+        readBuffer(fdReq, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
 
-      ems_create(event_id, num_rows, num_cols);
-      close(fdReq);
-      break;
-    
-    default:
-      break;
+        memcpy(&event_id, buffer, sizeof(unsigned int));
+        memcpy(&num_rows, buffer + sizeof(unsigned int), sizeof(size_t));
+        memcpy(&num_cols, buffer + sizeof(unsigned int) + sizeof(size_t), sizeof(size_t));
+        free(buffer);
+
+        printf("CREATE %u %ld %ld\n", event_id, num_rows, num_cols);
+        ems_create(event_id, num_rows, num_cols);
+        break;
+      case '4':
+
+        size_t size_event_id = sizeof(unsigned int);
+        size_t size_num_seats = sizeof(size_t);
+        size_t size_reservation_seat = sizeof(size_t);
+        size_t size_xs = sizeof(size_t) * MAX_RESERVATION_SIZE;
+        size_t size_ys = sizeof(size_t) * MAX_RESERVATION_SIZE;
+
+        size_t total_size = size_event_id + size_num_seats + size_xs + size_ys;
+
+        buffer = malloc(total_size);
+        char *ptr = buffer;
+
+        readBuffer(fdReq, buffer, total_size);
+
+        memcpy(&event_id, ptr, size_event_id);
+        ptr += size_event_id;
+        memcpy(&num_seats, ptr, size_num_seats);
+        for (int i = 0; i < (int)num_seats; i++) {
+          ptr += size_reservation_seat;
+          memcpy(&xs[i], ptr, size_reservation_seat);
+          ptr += size_reservation_seat;
+          memcpy(&ys[i], ptr, size_reservation_seat);
+        }
+        free(buffer);
+        
+        printf("Reservas do evento: %u\n", event_id);
+        for (int i = 0; i < (int)num_seats; i++) {
+          printf("Lugar:(%ld %ld)\n", xs[i], ys[i]);
+        }
+
+        ems_reserve(event_id, num_seats, xs, ys);
+        break;
+      
+      default:
+        break;
     }
   }
 
