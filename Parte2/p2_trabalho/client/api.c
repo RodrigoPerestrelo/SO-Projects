@@ -1,6 +1,7 @@
 #include "api.h"
 #include "common/rw_aux.h"
 #include "common/constants.h"
+#include "common/io.h"
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -102,6 +103,17 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
   free(buffer);
   close(fdReq);
+
+  /*
+  int fdResp = open(response_pipe, O_RDONLY);
+  int response;
+
+  buffer = malloc(sizeof(int));
+  readBuffer(fdResp, buffer, sizeof(int));
+  memcpy(&response, buffer, sizeof(int));
+  printf("%d\n", response);
+  */
+
   //TODO: send create request to the server (through the request pipe) and wait for the response (through the response pipe)
   return 0;
 }
@@ -149,6 +161,33 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
 }
 
 int ems_show(int out_fd, unsigned int event_id) {
+
+
+  int fdReq = open(request_pipe, O_WRONLY);
+
+  char ch = '5';
+
+  if (write(fdReq, &ch, 1) != 1) {
+    perror("Error writing char.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  char *buffer = malloc(sizeof(unsigned int) + sizeof(int));
+  char *ptr = buffer;
+
+  memcpy(ptr, &event_id, sizeof(unsigned int));
+  ptr += sizeof(unsigned int);
+  memcpy(ptr, &out_fd, sizeof(int));
+
+  writeFile(fdReq, buffer, sizeof(unsigned int) + sizeof(int));
+  free(buffer);
+
+  buffer = malloc(1024);
+  int fdResponse = open(response_pipe, O_RDONLY);
+  readBuffer(fdResponse, buffer, 1024);
+  printf("%s\n", buffer);
+
+  free(buffer);
   //TODO: send show request to the server (through the request pipe) and wait for the response (through the response pipe)
   return 1;
 }

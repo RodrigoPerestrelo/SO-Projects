@@ -40,6 +40,7 @@ void* execute_client() {
   size_t num_rows, num_cols, num_seats;
   size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
   char *buffer;
+  int fd_out;
   int fdReq = open(requestPipe, O_RDONLY);
 
   while (1) {
@@ -50,7 +51,7 @@ void* execute_client() {
     }
     switch (ch) {
       case '2':
-
+        printf("Ficheiro Acabou\n");
         close(fdReq);
         return NULL;
         break;
@@ -92,7 +93,7 @@ void* execute_client() {
           memcpy(&ys[i], ptr, size_reservation_seat);
         }
         free(buffer);
-        
+
         printf("Reservas do evento: %u\n", event_id);
         for (int i = 0; i < (int)num_seats; i++) {
           printf("Lugar:(%ld %ld)\n", xs[i], ys[i]);
@@ -100,7 +101,18 @@ void* execute_client() {
 
         ems_reserve(event_id, num_seats, xs, ys);
         break;
-      
+      case '5':
+
+        buffer = malloc(sizeof(unsigned int) + sizeof(int));
+        readBuffer(fdReq, buffer, sizeof(unsigned int) + sizeof(int));
+
+        memcpy(&event_id, buffer, sizeof(unsigned int));
+        memcpy(&fd_out, buffer + sizeof(unsigned int), sizeof(int));
+
+        int fdResponse = open(responsePipe, O_WRONLY);
+        ems_show(fdResponse, event_id);
+        close(fdResponse);
+        break;
       default:
         break;
     }

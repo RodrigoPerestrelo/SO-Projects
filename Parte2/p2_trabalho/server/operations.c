@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include "common/io.h"
+#include "common/rw_aux.h"
 #include "eventlist.h"
 
 static struct EventList* event_list = NULL;
@@ -173,7 +174,7 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
   return 0;
 }
 
-int ems_show(int out_fd, unsigned int event_id) {
+int ems_show(int pipe_response, unsigned int event_id) {
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
     return 1;
@@ -193,6 +194,13 @@ int ems_show(int out_fd, unsigned int event_id) {
     return 1;
   }
 
+  char *buffer = malloc(((event->rows * event->cols) * sizeof(char)) * 2 + 2);
+  if (buffer == NULL) {
+    fprintf(stderr, "Error allocating memory for buffer.\n");
+    return 1;
+  }
+  char *current = buffer;  // Auxiliar pointer to the current position in the buffer
+
   if (pthread_mutex_lock(&event->mutex) != 0) {
     fprintf(stderr, "Error locking mutex\n");
     return 1;
@@ -200,30 +208,23 @@ int ems_show(int out_fd, unsigned int event_id) {
 
   for (size_t i = 1; i <= event->rows; i++) {
     for (size_t j = 1; j <= event->cols; j++) {
-      char buffer[16];
-      sprintf(buffer, "%u", event->data[seat_index(event, i, j)]);
-
-      if (print_str(out_fd, buffer)) {
-        perror("Error writing to file descriptor");
-        pthread_mutex_unlock(&event->mutex);
-        return 1;
-      }
+      int written = snprintf(current, 2, "%u", event->data[seat_index(event, i, j)]);
+      current += written;
 
       if (j < event->cols) {
-        if (print_str(out_fd, " ")) {
-          perror("Error writing to file descriptor");
-          pthread_mutex_unlock(&event->mutex);
-          return 1;
-        }
+          int space_written = snprintf(current, 2, " ");
+          current += space_written;
       }
     }
-
-    if (print_str(out_fd, "\n")) {
-      perror("Error writing to file descriptor");
-      pthread_mutex_unlock(&event->mutex);
-      return 1;
-    }
+    int newline_written = snprintf(current, 2, "\n");
+    current += newline_written;
   }
+  *current = '\n';
+  current++;
+  *current = '\0';
+
+  printf("%s\n", buffer);
+  writeFile(pipe_response, buffer, ((event->rows * event->cols) * sizeof(char)) * 2 + 2);
 
   pthread_mutex_unlock(&event->mutex);
   return 0;
