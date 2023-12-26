@@ -3,11 +3,11 @@
 #include <stdlib.h>
 
 
-#include "common/constants.h"
 #include "common/io.h"
 #include "operations.h"
 #include "common/rw_aux.h"
 #include "common/queue.h"
+#include "common/constants.h"
 
 #include <fcntl.h>
 #include <pthread.h>
@@ -17,7 +17,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-Queue *queue;
+Queue *globalQueue;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
@@ -25,26 +25,26 @@ void* execute_client() {
 
   pthread_cond_wait(&cond, &mutex);
 
-  Node *head = getHeadQueue(queue);
-  char requestPipe[100];
+  Node *head = getHeadQueue(globalQueue);
+  char requestPipe[MAX_PIPE_NAME];
   strcpy(requestPipe, head->requestPipe);
-  char responsePipe[100];
+  char responsePipe[MAX_PIPE_NAME];
   strcpy(responsePipe, head->responsePipe);
 
-  removeHeadQueue(queue);
+  removeHeadQueue(globalQueue);
 
   if (pthread_mutex_unlock(&mutex) != 0) {
     exit(EXIT_FAILURE);
   }
   unsigned int event_id;
   size_t num_rows, num_cols, num_seats, xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
-  char *buffer;
-  int failed;
+  char ch, *buffer, *ptr;
+  int status;
   int fdReq = open(requestPipe, O_RDONLY);
   int fdResp = open(responsePipe, O_WRONLY);
 
   while (1) {
-    char ch;
+
     if (read(fdReq, &ch, 1) != 1) {
       perror("Error reading char.\n");
       exit(EXIT_FAILURE);
@@ -60,18 +60,29 @@ void* execute_client() {
       case '3':
 
         buffer = malloc(sizeof(unsigned int) + (sizeof(size_t) * 2));
+        if (buffer == NULL) {
+          perror("Error allocating memory.\n");
+          exit(EXIT_FAILURE);
+        }
         readBuffer(fdReq, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
 
-        memcpy(&event_id, buffer, sizeof(unsigned int));
-        memcpy(&num_rows, buffer + sizeof(unsigned int), sizeof(size_t));
-        memcpy(&num_cols, buffer + sizeof(unsigned int) + sizeof(size_t), sizeof(size_t));
+        ptr = buffer;
+        memcpy(&event_id, ptr, sizeof(unsigned int));
+        ptr += sizeof(unsigned int);
+        memcpy(&num_rows, ptr, sizeof(size_t));
+        ptr += sizeof(size_t);
+        memcpy(&num_cols, ptr, sizeof(size_t));
         free(buffer);
 
         printf("CREATE %u %ld %ld\n", event_id, num_rows, num_cols);
-        failed = ems_create(event_id, num_rows, num_cols);
+        status = ems_create(event_id, num_rows, num_cols);
 
         buffer = malloc(sizeof(int));
-        memcpy(buffer, &failed, sizeof(int));
+        if (buffer == NULL) {
+          perror("Error allocating memory.\n");
+          exit(EXIT_FAILURE);
+        }
+        memcpy(buffer, &status, sizeof(int));
         writeFile(fdResp, buffer, sizeof(int));
         free(buffer);
 
@@ -87,18 +98,23 @@ void* execute_client() {
         size_t total_size = size_event_id + size_num_seats + size_xs + size_ys;
 
         buffer = malloc(total_size);
-        char *ptr = buffer;
-
+        if (buffer == NULL) {
+          perror("Error allocating memory.\n");
+          exit(EXIT_FAILURE);
+        }
         readBuffer(fdReq, buffer, total_size);
 
+        ptr = buffer;
         memcpy(&event_id, ptr, size_event_id);
         ptr += size_event_id;
         memcpy(&num_seats, ptr, size_num_seats);
+        ptr += size_num_seats;
+
         for (int i = 0; i < (int)num_seats; i++) {
-          ptr += size_reservation_seat;
           memcpy(&xs[i], ptr, size_reservation_seat);
           ptr += size_reservation_seat;
           memcpy(&ys[i], ptr, size_reservation_seat);
+          ptr += size_reservation_seat;
         }
         free(buffer);
 
@@ -107,9 +123,13 @@ void* execute_client() {
           printf("Lugar:(%ld %ld)\n", xs[i], ys[i]);
         }
 
-        failed = ems_reserve(event_id, num_seats, xs, ys);
+        status = ems_reserve(event_id, num_seats, xs, ys);
         buffer = malloc(sizeof(int));
-        memcpy(buffer, &failed, sizeof(int));
+        if (buffer == NULL) {
+          perror("Error allocating memory.\n");
+          exit(EXIT_FAILURE);
+        }
+        memcpy(buffer, &status, sizeof(int));
         writeFile(fdResp, buffer, sizeof(int));
         free(buffer);
 
@@ -117,6 +137,10 @@ void* execute_client() {
       case '5':
 
         buffer = malloc(sizeof(unsigned int) + sizeof(int));
+        if (buffer == NULL) {
+          perror("Error allocating memory.\n");
+          exit(EXIT_FAILURE);
+        }
         readBuffer(fdReq, buffer, sizeof(unsigned int) + sizeof(int));
 
         memcpy(&event_id, buffer, sizeof(unsigned int));
@@ -173,9 +197,8 @@ int main(int argc, char* argv[]) {
   }
 
 
-  queue = initializeQueue();
+  globalQueue = initializeQueue();
   pthread_t thread_id;
-
 
   while (1) {
 
@@ -184,7 +207,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (pthread_create(&thread_id, NULL, execute_client, NULL) != 0) {
-      perror("Error creating thread");
+      perror("Error creating thread.\n");
       return 1;
     }
 
@@ -194,10 +217,20 @@ int main(int argc, char* argv[]) {
 
 
     char *buffer = malloc(sizeof(char) * (MAX_PIPE_NAME * 2));
+    if (buffer == NULL) {
+      perror("Error allocating memory.\n");
+      exit(EXIT_FAILURE);
+    }
     char *bufferRequest = malloc(sizeof(char) * MAX_PIPE_NAME);
+    if (bufferRequest == NULL) {
+      perror("Error allocating memory.\n");
+      exit(EXIT_FAILURE);
+    }
     char *bufferResponse = malloc(sizeof(char) * MAX_PIPE_NAME);
-
-    
+    if (bufferResponse == NULL) {
+      perror("Error allocating memory.\n");
+      exit(EXIT_FAILURE);
+    }
 
     char character;
     int tx = open(SERVER_FIFO, O_RDONLY);
@@ -211,7 +244,7 @@ int main(int argc, char* argv[]) {
     strncpy(bufferRequest, buffer, MAX_PIPE_NAME);
     strncpy(bufferResponse, buffer + MAX_PIPE_NAME, MAX_PIPE_NAME);
 
-    addToQueue(queue, bufferRequest, bufferResponse);
+    addToQueue(globalQueue, bufferRequest, bufferResponse);
     pthread_cond_signal(&cond);
 
     free(bufferRequest);
