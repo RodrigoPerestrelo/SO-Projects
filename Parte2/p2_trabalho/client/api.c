@@ -18,6 +18,9 @@
 const char* request_pipe;
 const char* response_pipe;
 
+int fd_req_pipe = -1;
+int fd_resp_pipe = -1;
+
 
 int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const* server_pipe_path) {
   
@@ -48,7 +51,6 @@ int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const*
   request_pipe = req_pipe_path;
   response_pipe = resp_pipe_path;
 
-
   int tx = open(server_pipe_path, O_WRONLY);
 
   if (tx == -1) {
@@ -65,7 +67,9 @@ int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const*
 
   free(buffer);
   close(tx);
-
+  
+  fd_req_pipe = open(req_pipe_path, O_WRONLY);
+  printf("teste\n");
   return 0;
 }
 
@@ -87,6 +91,7 @@ int ems_quit(void) {
 int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
   int fdReq = open(request_pipe, O_WRONLY);
+  printf("-%d-\n", fdReq);
 
   char ch = '3';
   if (write(fdReq, &ch, 1) != 1) {
