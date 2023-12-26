@@ -2,6 +2,7 @@
 #include "common/rw_aux.h"
 #include "common/constants.h"
 #include "common/io.h"
+#include "server/operations.h"
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -58,6 +59,14 @@ int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const*
     return 1;
   }
 
+
+  char ch = '1';
+  if (write(tx, &ch, 1) != 1) {
+    perror("Error writing char.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  //AGUARDAR RESPOSTA
   char *buffer = malloc(sizeof(char) * MAX_PIPE_NAME * 2);
   memset(buffer, '\0', MAX_PIPE_NAME * 2);
   strncpy(buffer, request_pipe, MAX_PIPE_NAME);
@@ -69,67 +78,60 @@ int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const*
   close(tx);
   
   fd_req_pipe = open(req_pipe_path, O_WRONLY);
-  printf("teste\n");
+  fd_resp_pipe = open(resp_pipe_path, O_RDONLY);
+
   return 0;
 }
 
 int ems_quit(void) { 
 
-  int fdReq = open(request_pipe, O_WRONLY);
-
   char ch = '2';
-  if (write(fdReq, &ch, 1) != 1) {
+  if (write(fd_req_pipe, &ch, 1) != 1) {
     perror("Error writing char.\n");
     exit(EXIT_FAILURE);
   }
   //TODO: close pipes
-  close(fdReq);
+  close(fd_req_pipe);
+  close(fd_resp_pipe);
 
   return 0;
 }
 
 int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
-  int fdReq = open(request_pipe, O_WRONLY);
-  printf("-%d-\n", fdReq);
-
   char ch = '3';
-  if (write(fdReq, &ch, 1) != 1) {
+  if (write(fd_req_pipe, &ch, 1) != 1) {
     perror("Error writing char.\n");
     exit(EXIT_FAILURE);
   }
 
   char *buffer = malloc(sizeof(unsigned int) + (sizeof(size_t) * 2));
+  if (buffer == NULL) {
+    perror("Erro ao alocar memória para o buffer");
+    exit(EXIT_FAILURE);
+  }
   memcpy(buffer, &event_id, sizeof(unsigned int));
   memcpy(buffer + sizeof(unsigned int), &num_rows, sizeof(size_t));
   memcpy(buffer + sizeof(unsigned int) + sizeof(size_t), &num_cols, sizeof(size_t));
 
-  writeFile(fdReq, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
-
+  writeFile(fd_req_pipe, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
   free(buffer);
-  close(fdReq);
 
-  /*
-  int fdResp = open(response_pipe, O_RDONLY);
+
   int response;
-
   buffer = malloc(sizeof(int));
-  readBuffer(fdResp, buffer, sizeof(int));
+  readBuffer(fd_resp_pipe, buffer, sizeof(int));
   memcpy(&response, buffer, sizeof(int));
-  printf("%d\n", response);
-  */
+  free(buffer);
 
-  //TODO: send create request to the server (through the request pipe) and wait for the response (through the response pipe)
-  return 0;
+  return response;
 }
 
 int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys) {
-  
-  int fdReq = open(request_pipe, O_WRONLY);
 
   char ch = '4';
 
-  if (write(fdReq, &ch, 1) != 1) {
+  if (write(fd_req_pipe, &ch, 1) != 1) {
     perror("Error writing char.\n");
     exit(EXIT_FAILURE);
   }
@@ -160,44 +162,132 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
     memcpy(ptr, &ys[i], size_reservation_seat);
   }
 
-  writeFile(fdReq, buffer, total_size);
-  //TODO: send reserve request to the server (through the request pipe) and wait for the response (through the response pipe)
-  return 1;
+  writeFile(fd_req_pipe, buffer, total_size);
+  free(buffer);
+
+  int response;
+  buffer = malloc(sizeof(int));
+  readBuffer(fd_resp_pipe, buffer, sizeof(int));
+  memcpy(&response, buffer, sizeof(int));
+  free(buffer);
+
+  return response;
 }
 
 int ems_show(int out_fd, unsigned int event_id) {
 
-
-  int fdReq = open(request_pipe, O_WRONLY);
-
+  char *ptr;
   char ch = '5';
 
-  if (write(fdReq, &ch, 1) != 1) {
+  if (write(fd_req_pipe, &ch, 1) != 1) {
     perror("Error writing char.\n");
     exit(EXIT_FAILURE);
   }
 
   char *buffer = malloc(sizeof(unsigned int) + sizeof(int));
-  char *ptr = buffer;
+  if (buffer == NULL) {
+    perror("Erro ao alocar memória para o buffer");
+    exit(EXIT_FAILURE);
+  }
+  memcpy(buffer, &event_id, sizeof(unsigned int));
 
-  memcpy(ptr, &event_id, sizeof(unsigned int));
-  ptr += sizeof(unsigned int);
-  memcpy(ptr, &out_fd, sizeof(int));
-
-  writeFile(fdReq, buffer, sizeof(unsigned int) + sizeof(int));
+  writeFile(fd_req_pipe, buffer, sizeof(unsigned int));
   free(buffer);
 
-  buffer = malloc(1024);
-  int fdResponse = open(response_pipe, O_RDONLY);
-  readBuffer(fdResponse, buffer, 1024);
-  printf("%s\n", buffer);
+  // LER O RETORNO DO SHOW, SE FUNCIONOU OU NÃO
+  int ret_value;
 
+  buffer = malloc(sizeof(int));
+  readBuffer(fd_resp_pipe, buffer, sizeof(int));
+  memcpy(&ret_value, buffer, sizeof(int));
   free(buffer);
+
+  if (ret_value) return 1;
+  
+
+  size_t num_rows, num_cols;
+
+  buffer = malloc(sizeof(size_t) * 2);
+  readBuffer(fd_resp_pipe, buffer, sizeof(size_t) * 2);
+  ptr = buffer;
+  memcpy(&num_rows, ptr, sizeof(size_t));
+  ptr += sizeof(size_t);
+  memcpy(&num_cols, ptr, sizeof(size_t));
+  ptr += sizeof(size_t);
+  free(buffer);
+
+  size_t num_seats = num_rows* num_cols;
+  unsigned int show_seats[num_rows * num_cols];
+  memset(show_seats, 0, num_rows * num_cols * sizeof(unsigned int));
+
+  buffer = malloc(sizeof(unsigned int) * num_cols * num_rows);
+  readBuffer(fd_resp_pipe, buffer, sizeof(unsigned int) * num_seats);
+  ptr = buffer;
+
+  for (size_t i = 0; i < num_seats; i++) {
+    memcpy(&show_seats[i], ptr, sizeof(unsigned int));
+    ptr += sizeof(unsigned int);
+  }
+  
+  printf("\n");
+  for (size_t i = 0; i < num_cols* num_rows; i++) {
+    if (i%num_cols == 0 && i != 0) {
+      printf("\n");
+    }
+    
+    printf("%u ", show_seats[i]);
+  }
+  printf("\n");
+
   //TODO: send show request to the server (through the request pipe) and wait for the response (through the response pipe)
-  return 1;
+  return 0;
 }
 
 int ems_list_events(int out_fd) {
+
+  char *buffer;
+  char *ptr;
+
+  char ch = '6';
+  if (write(fd_req_pipe, &ch, 1) != 1) {
+    perror("Error writing char.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int ret_value;
+
+  buffer = malloc(sizeof(int));
+  readBuffer(fd_resp_pipe, buffer, sizeof(int));
+  memcpy(&ret_value, buffer, sizeof(int));
+  free(buffer);
+
+  if (ret_value) return 1;
+
+  size_t num_events;
+  buffer = malloc(sizeof(size_t));
+  readBuffer(fd_resp_pipe, buffer, sizeof(size_t));
+  memcpy(&num_events, buffer, sizeof(size_t));
+  free(buffer);
+
+  if (num_events == 0) {
+    printf("No events\n");
+  } else {
+    buffer = malloc(sizeof(unsigned int) * num_events);
+    readBuffer(fd_resp_pipe, buffer, sizeof(unsigned int) * num_events);
+    ptr = buffer;
+
+    unsigned int list_ids[num_events];
+    memset(list_ids, 0, num_events * sizeof(unsigned int));
+
+    for (size_t i = 0; i < num_events; i++) {
+      memcpy(&list_ids[i], ptr, sizeof(unsigned int));
+      printf("Event: %u\n", list_ids[i]);
+      ptr += sizeof(unsigned int);
+    }
+    free(buffer);
+  }
+
+
   //TODO: send list request to the server (through the request pipe) and wait for the response (through the response pipe)
-  return 1;
+  return 0;
 }

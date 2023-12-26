@@ -33,16 +33,15 @@ void* execute_client() {
 
   removeHeadQueue(queue);
 
-
   if (pthread_mutex_unlock(&mutex) != 0) {
     exit(EXIT_FAILURE);
   }
   unsigned int event_id;
-  size_t num_rows, num_cols, num_seats;
-  size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
+  size_t num_rows, num_cols, num_seats, xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
   char *buffer;
-  int fd_out;
+  int failed;
   int fdReq = open(requestPipe, O_RDONLY);
+  int fdResp = open(responsePipe, O_WRONLY);
 
   while (1) {
     char ch;
@@ -52,8 +51,10 @@ void* execute_client() {
     }
     switch (ch) {
       case '2':
+
         printf("Ficheiro Acabou\n");
         close(fdReq);
+        close(fdResp);
         return NULL;
         break;
       case '3':
@@ -67,7 +68,13 @@ void* execute_client() {
         free(buffer);
 
         printf("CREATE %u %ld %ld\n", event_id, num_rows, num_cols);
-        ems_create(event_id, num_rows, num_cols);
+        failed = ems_create(event_id, num_rows, num_cols);
+
+        buffer = malloc(sizeof(int));
+        memcpy(buffer, &failed, sizeof(int));
+        writeFile(fdResp, buffer, sizeof(int));
+        free(buffer);
+
         break;
       case '4':
 
@@ -100,7 +107,12 @@ void* execute_client() {
           printf("Lugar:(%ld %ld)\n", xs[i], ys[i]);
         }
 
-        ems_reserve(event_id, num_seats, xs, ys);
+        failed = ems_reserve(event_id, num_seats, xs, ys);
+        buffer = malloc(sizeof(int));
+        memcpy(buffer, &failed, sizeof(int));
+        writeFile(fdResp, buffer, sizeof(int));
+        free(buffer);
+
         break;
       case '5':
 
@@ -108,12 +120,13 @@ void* execute_client() {
         readBuffer(fdReq, buffer, sizeof(unsigned int) + sizeof(int));
 
         memcpy(&event_id, buffer, sizeof(unsigned int));
-        memcpy(&fd_out, buffer + sizeof(unsigned int), sizeof(int));
+        free(buffer);
 
-        int fdResponse = open(responsePipe, O_WRONLY);
-        ems_show(fdResponse, event_id);
-        close(fdResponse);
+        ems_show(fdResp, event_id);
+
         break;
+      case '6':
+        ems_list_events(fdResp);
       default:
         break;
     }
@@ -179,11 +192,20 @@ int main(int argc, char* argv[]) {
       exit(EXIT_FAILURE);
     }
 
+
     char *buffer = malloc(sizeof(char) * (MAX_PIPE_NAME * 2));
     char *bufferRequest = malloc(sizeof(char) * MAX_PIPE_NAME);
     char *bufferResponse = malloc(sizeof(char) * MAX_PIPE_NAME);
+
     
+
+    char character;
     int tx = open(SERVER_FIFO, O_RDONLY);
+    read(tx, &character, sizeof(char));
+
+    //VERIFICAÇÕES
+    //PARA VER SE PODEMOS INICIALIZAR SESSÃO
+    //EM CASO AFIRMATIVO INICILIZAR O SERVER, EM CASO NEGATIVO FAZER A LEITURA MAS
 
     readBuffer(tx, buffer, MAX_PIPE_NAME * 2);
     strncpy(bufferRequest, buffer, MAX_PIPE_NAME);
