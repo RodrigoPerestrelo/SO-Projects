@@ -17,142 +17,157 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+pthread_t threads[MAX_SESSION_COUNT];
+int activeClients = 0;
+
 Queue *globalQueue;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
-void* execute_client() {
+void* execute_client(void* args) {
 
-  pthread_cond_wait(&cond, &mutex);
-
-  Node *head = getHeadQueue(globalQueue);
-  char requestPipe[MAX_PIPE_NAME];
-  strcpy(requestPipe, head->requestPipe);
-  char responsePipe[MAX_PIPE_NAME];
-  strcpy(responsePipe, head->responsePipe);
-
-  removeHeadQueue(globalQueue);
-
-  if (pthread_mutex_unlock(&mutex) != 0) {
-    exit(EXIT_FAILURE);
-  }
-  unsigned int event_id;
-  size_t num_rows, num_cols, num_seats, xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
-  char ch, *buffer, *ptr;
-  int status;
-  int fdReq = open(requestPipe, O_RDONLY);
-  int fdResp = open(responsePipe, O_WRONLY);
+  int *thread_id = (int*)args;
 
   while (1) {
+    
+    if (activeClients < MAX_SESSION_COUNT) {
+      pthread_cond_wait(&cond, &mutex);
+    }
+    printf("Cliente ligou-se à thread %d\n", *thread_id);
 
-    if (read(fdReq, &ch, 1) != 1) {
-      perror("Error reading char.\n");
+    int flag = 1;
+
+    Node *head = getHeadQueue(globalQueue);
+    char requestPipe[MAX_PIPE_NAME];
+    strcpy(requestPipe, head->requestPipe);
+    char responsePipe[MAX_PIPE_NAME];
+    strcpy(responsePipe, head->responsePipe);
+
+    removeHeadQueue(globalQueue);
+
+    if (pthread_mutex_unlock(&mutex) != 0) {
       exit(EXIT_FAILURE);
     }
-    switch (ch) {
-      case '2':
+    unsigned int event_id;
+    size_t num_rows, num_cols, num_seats, xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
+    char ch, *buffer, *ptr;
+    int status;
+    int fdReq = open(requestPipe, O_RDONLY);
+    int fdResp = open(responsePipe, O_WRONLY);
 
-        printf("Ficheiro Acabou\n");
-        close(fdReq);
-        close(fdResp);
-        return NULL;
-        break;
-      case '3':
+    while (flag) {
 
-        buffer = malloc(sizeof(unsigned int) + (sizeof(size_t) * 2));
-        if (buffer == NULL) {
-          perror("Error allocating memory.\n");
-          exit(EXIT_FAILURE);
-        }
-        readBuffer(fdReq, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
+      if (read(fdReq, &ch, 1) != 1) {
+        perror("Error reading char.\n");
+        exit(EXIT_FAILURE);
+      }
+      switch (ch) {
+        case '2':
 
-        ptr = buffer;
-        memcpy(&event_id, ptr, sizeof(unsigned int));
-        ptr += sizeof(unsigned int);
-        memcpy(&num_rows, ptr, sizeof(size_t));
-        ptr += sizeof(size_t);
-        memcpy(&num_cols, ptr, sizeof(size_t));
-        free(buffer);
+          printf("Ficheiro Acabou\n");
+          close(fdReq);
+          close(fdResp);
+          flag = 0;
+          activeClients--;
+          break;
+        case '3':
 
-        printf("CREATE %u %ld %ld\n", event_id, num_rows, num_cols);
-        status = ems_create(event_id, num_rows, num_cols);
+          buffer = malloc(sizeof(unsigned int) + (sizeof(size_t) * 2));
+          if (buffer == NULL) {
+            perror("Error allocating memory.\n");
+            exit(EXIT_FAILURE);
+          }
+          readBuffer(fdReq, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
 
-        buffer = malloc(sizeof(int));
-        if (buffer == NULL) {
-          perror("Error allocating memory.\n");
-          exit(EXIT_FAILURE);
-        }
-        memcpy(buffer, &status, sizeof(int));
-        writeFile(fdResp, buffer, sizeof(int));
-        free(buffer);
+          ptr = buffer;
+          memcpy(&event_id, ptr, sizeof(unsigned int));
+          ptr += sizeof(unsigned int);
+          memcpy(&num_rows, ptr, sizeof(size_t));
+          ptr += sizeof(size_t);
+          memcpy(&num_cols, ptr, sizeof(size_t));
+          free(buffer);
 
-        break;
-      case '4':
+          //printf("CREATE %u %ld %ld\n", event_id, num_rows, num_cols);
+          status = ems_create(event_id, num_rows, num_cols);
 
-        size_t size_event_id = sizeof(unsigned int);
-        size_t size_num_seats = sizeof(size_t);
-        size_t size_reservation_seat = sizeof(size_t);
-        size_t size_xs = sizeof(size_t) * MAX_RESERVATION_SIZE;
-        size_t size_ys = sizeof(size_t) * MAX_RESERVATION_SIZE;
+          buffer = malloc(sizeof(int));
+          if (buffer == NULL) {
+            perror("Error allocating memory.\n");
+            exit(EXIT_FAILURE);
+          }
+          memcpy(buffer, &status, sizeof(int));
+          writeFile(fdResp, buffer, sizeof(int));
+          free(buffer);
 
-        size_t total_size = size_event_id + size_num_seats + size_xs + size_ys;
+          break;
+        case '4':
 
-        buffer = malloc(total_size);
-        if (buffer == NULL) {
-          perror("Error allocating memory.\n");
-          exit(EXIT_FAILURE);
-        }
-        readBuffer(fdReq, buffer, total_size);
+          size_t size_event_id = sizeof(unsigned int);
+          size_t size_num_seats = sizeof(size_t);
+          size_t size_reservation_seat = sizeof(size_t);
+          size_t size_xs = sizeof(size_t) * MAX_RESERVATION_SIZE;
+          size_t size_ys = sizeof(size_t) * MAX_RESERVATION_SIZE;
 
-        ptr = buffer;
-        memcpy(&event_id, ptr, size_event_id);
-        ptr += size_event_id;
-        memcpy(&num_seats, ptr, size_num_seats);
-        ptr += size_num_seats;
+          size_t total_size = size_event_id + size_num_seats + size_xs + size_ys;
 
-        for (int i = 0; i < (int)num_seats; i++) {
-          memcpy(&xs[i], ptr, size_reservation_seat);
-          ptr += size_reservation_seat;
-          memcpy(&ys[i], ptr, size_reservation_seat);
-          ptr += size_reservation_seat;
-        }
-        free(buffer);
+          buffer = malloc(total_size);
+          if (buffer == NULL) {
+            perror("Error allocating memory.\n");
+            exit(EXIT_FAILURE);
+          }
+          readBuffer(fdReq, buffer, total_size);
 
-        printf("Reservas do evento: %u\n", event_id);
-        for (int i = 0; i < (int)num_seats; i++) {
-          printf("Lugar:(%ld %ld)\n", xs[i], ys[i]);
-        }
+          ptr = buffer;
+          memcpy(&event_id, ptr, size_event_id);
+          ptr += size_event_id;
+          memcpy(&num_seats, ptr, size_num_seats);
+          ptr += size_num_seats;
 
-        status = ems_reserve(event_id, num_seats, xs, ys);
-        buffer = malloc(sizeof(int));
-        if (buffer == NULL) {
-          perror("Error allocating memory.\n");
-          exit(EXIT_FAILURE);
-        }
-        memcpy(buffer, &status, sizeof(int));
-        writeFile(fdResp, buffer, sizeof(int));
-        free(buffer);
+          for (int i = 0; i < (int)num_seats; i++) {
+            memcpy(&xs[i], ptr, size_reservation_seat);
+            ptr += size_reservation_seat;
+            memcpy(&ys[i], ptr, size_reservation_seat);
+            ptr += size_reservation_seat;
+          }
+          free(buffer);
 
-        break;
-      case '5':
+          /*
+          printf("Reservas do evento: %u\n", event_id);
+          for (int i = 0; i < (int)num_seats; i++) {
+            printf("Lugar:(%ld %ld)\n", xs[i], ys[i]);
+          }
+          */
+          status = ems_reserve(event_id, num_seats, xs, ys);
+          buffer = malloc(sizeof(int));
+          if (buffer == NULL) {
+            perror("Error allocating memory.\n");
+            exit(EXIT_FAILURE);
+          }
+          memcpy(buffer, &status, sizeof(int));
+          writeFile(fdResp, buffer, sizeof(int));
+          free(buffer);
 
-        buffer = malloc(sizeof(unsigned int) + sizeof(int));
-        if (buffer == NULL) {
-          perror("Error allocating memory.\n");
-          exit(EXIT_FAILURE);
-        }
-        readBuffer(fdReq, buffer, sizeof(unsigned int) + sizeof(int));
+          break;
+        case '5':
 
-        memcpy(&event_id, buffer, sizeof(unsigned int));
-        free(buffer);
+          buffer = malloc(sizeof(unsigned int) + sizeof(int));
+          if (buffer == NULL) {
+            perror("Error allocating memory.\n");
+            exit(EXIT_FAILURE);
+          }
+          readBuffer(fdReq, buffer, sizeof(unsigned int) + sizeof(int));
 
-        ems_show(fdResp, event_id);
+          memcpy(&event_id, buffer, sizeof(unsigned int));
+          free(buffer);
 
-        break;
-      case '6':
-        ems_list_events(fdResp);
-      default:
-        break;
+          ems_show(fdResp, event_id);
+
+          break;
+        case '6':
+          ems_list_events(fdResp);
+        default:
+          break;
+      }
     }
   }
 
@@ -198,23 +213,26 @@ int main(int argc, char* argv[]) {
 
 
   globalQueue = initializeQueue();
-  pthread_t thread_id;
+  
+  if (pthread_mutex_lock(&mutex) != 0) {
+    exit(EXIT_FAILURE);
+  }
+
+  int thread_ids[MAX_SESSION_COUNT];
+
+  for (int i = 0; i < MAX_SESSION_COUNT; i++) {
+    thread_ids[i] = i;
+    pthread_create(&threads[i], NULL, execute_client, &thread_ids[i]);
+    if (pthread_mutex_lock(&mutex) != 0) {
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  if (pthread_mutex_unlock(&mutex) != 0) {
+    exit(EXIT_FAILURE);
+  }
 
   while (1) {
-
-    if (pthread_mutex_lock(&mutex) != 0) {
-      exit(EXIT_FAILURE);
-    }
-
-    if (pthread_create(&thread_id, NULL, execute_client, NULL) != 0) {
-      perror("Error creating thread.\n");
-      return 1;
-    }
-
-    if (pthread_mutex_lock(&mutex) != 0) {
-      exit(EXIT_FAILURE);
-    }
-
 
     char *buffer = malloc(sizeof(char) * (MAX_PIPE_NAME * 2));
     if (buffer == NULL) {
@@ -234,6 +252,7 @@ int main(int argc, char* argv[]) {
 
     char character;
     int tx = open(SERVER_FIFO, O_RDONLY);
+    printf("entrou cliente\n");
     read(tx, &character, sizeof(char));
 
     //VERIFICAÇÕES
@@ -245,20 +264,12 @@ int main(int argc, char* argv[]) {
     strncpy(bufferResponse, buffer + MAX_PIPE_NAME, MAX_PIPE_NAME);
 
     addToQueue(globalQueue, bufferRequest, bufferResponse);
+    activeClients++;
     pthread_cond_signal(&cond);
 
     free(bufferRequest);
     free(bufferResponse);
     free(buffer);
-
-    if (pthread_mutex_unlock(&mutex) != 0) {
-      exit(EXIT_FAILURE);
-    }
-
-    if (pthread_join(thread_id, NULL) != 0) {
-      perror("Erro ao esperar pela thread");
-      exit(EXIT_FAILURE);
-    }
     
     //TODO: Write new client to the producer-consumer buffer
   }

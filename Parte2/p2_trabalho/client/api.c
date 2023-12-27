@@ -267,16 +267,30 @@ int ems_show(int out_fd, unsigned int event_id) {
     memcpy(&show_seats[i], ptr, sizeof(unsigned int));
     ptr += sizeof(unsigned int);
   }
-  
-  printf("\n");
-  for (size_t i = 0; i < num_cols* num_rows; i++) {
-    if (i%num_cols == 0 && i != 0) {
-      printf("\n");
+  free(buffer);
+
+  buffer = malloc((sizeof(char) * num_seats * 2) + 1);
+  ptr = buffer;
+  int k = 0;
+  for (size_t i = 1; i <= num_rows; i++) {
+    for (size_t j = 1; j <= num_cols; j++) {
+      int written = snprintf(ptr, 2, "%u", show_seats[k]);
+      ptr += written;
+
+      if (j < num_cols) {
+          int space_written = snprintf(ptr, 2, " ");
+          ptr += space_written;
+      }
+      k++;
     }
-    
-    printf("%u ", show_seats[i]);
+    int newline_written = snprintf(ptr, 2, "\n");
+    ptr += newline_written;
   }
-  printf("\n");
+  *ptr = '\n';
+  ptr++;
+  *ptr = '\0';
+  writeFile(out_fd, buffer, (sizeof(char) * num_seats * 2) + 1);
+  free(buffer);
 
   //TODO: send show request to the server (through the request pipe) and wait for the response (through the response pipe)
   return status;
@@ -316,7 +330,12 @@ int ems_list_events(int out_fd) {
   free(buffer);
 
   if (num_events == 0) {
-    printf("No events\n");
+    buffer = malloc(sizeof(char) * 11);
+    buffer[0] = '\0';
+    strcat(buffer, "No events\n");
+    strcat(buffer, "\0");
+    writeFile(out_fd, buffer, sizeof(char) * 10);
+    free(buffer);
   } else {
     buffer = malloc(sizeof(unsigned int) * num_events);
     if (buffer == NULL) {
@@ -332,12 +351,24 @@ int ems_list_events(int out_fd) {
     for (size_t i = 0; i < num_events; i++) {
       memcpy(&list_ids[i], ptr, sizeof(unsigned int));
       ptr += sizeof(unsigned int);
-      printf("Event: %u\n", list_ids[i]);
     }
     free(buffer);
+
+    buffer = malloc((sizeof(char) * 9 * num_events));
+    ptr = buffer;
+    buffer[0] = '\0';
+    for (size_t i = 0; i < num_events; i++) {
+      strcat(buffer, "Event: ");
+      ptr += 7;
+      int written = snprintf(ptr, 2, "%u", list_ids[i]);
+      ptr += written;
+      strcat(ptr, "\n");
+      ptr++;
+    }
+    strcat(ptr, "\0");
+    writeFile(out_fd, buffer, (sizeof(char) * 9 * num_events));
   }
-
-
+  
   //TODO: send list request to the server (through the request pipe) and wait for the response (through the response pipe)
   return 0;
 }
