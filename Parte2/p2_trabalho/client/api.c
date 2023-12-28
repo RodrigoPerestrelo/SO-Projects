@@ -20,6 +20,8 @@ const char* response_pipe;
 int fd_req_pipe = -1;
 int fd_resp_pipe = -1;
 
+int session_id;
+
 
 int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const* server_pipe_path) {
   
@@ -89,6 +91,10 @@ int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const*
     return 1;
   }
 
+  buffer = malloc(sizeof(int));
+  read(fd_resp_pipe, buffer, sizeof(int));
+  memcpy(&session_id, buffer, sizeof(int));
+  free(buffer);
 
   return 0;
 }

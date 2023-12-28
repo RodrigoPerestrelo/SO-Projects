@@ -128,6 +128,11 @@ void* execute_client(void* args) {
     int fdReq = open(requestPipe, O_RDONLY);
     int fdResp = open(responsePipe, O_WRONLY);
 
+    buffer = malloc(sizeof(int));
+    memcpy(buffer, &(*thread_id), sizeof(int));
+    write(fdResp, buffer, sizeof(int));
+    free(buffer);
+
     while (flag) {
 
       if (read(fdReq, &ch, 1) != 1) {
