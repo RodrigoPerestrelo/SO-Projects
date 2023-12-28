@@ -16,16 +16,89 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <signal.h>
 
+char *SERVER_FIFO;
 pthread_t threads[MAX_SESSION_COUNT];
 int activeClients = 0;
+int show_details = 0;
 
 Queue *globalQueue;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
+
+void sigusr1_handler() {
+  if (signal(SIGUSR1, sigusr1_handler) == SIG_ERR) {
+    perror("Failed to set up SIGUSR1 handler again");
+    exit(EXIT_FAILURE);
+  }
+  show_details = 1;
+}
+
+void *receive_client() {
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGUSR1);
+  if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0) {
+    perror("pthread_sigmask failed");
+    exit(EXIT_FAILURE);
+  }
+
+  while (1) {
+
+    char *buffer = malloc(sizeof(char) * (MAX_PIPE_NAME * 2));
+    if (buffer == NULL) {
+      perror("Error allocating memory.\n");
+      exit(EXIT_FAILURE);
+    }
+    char *bufferRequest = malloc(sizeof(char) * MAX_PIPE_NAME);
+    if (bufferRequest == NULL) {
+      perror("Error allocating memory.\n");
+      exit(EXIT_FAILURE);
+    }
+    char *bufferResponse = malloc(sizeof(char) * MAX_PIPE_NAME);
+    if (bufferResponse == NULL) {
+      perror("Error allocating memory.\n");
+      exit(EXIT_FAILURE);
+    }
+
+    char character;
+    int tx = open(SERVER_FIFO, O_RDONLY);
+    printf("entrou cliente\n");
+    read(tx, &character, sizeof(char));
+
+    //VERIFICAÇÕES
+    //PARA VER SE PODEMOS INICIALIZAR SESSÃO
+    //EM CASO AFIRMATIVO INICILIZAR O SERVER, EM CASO NEGATIVO FAZER A LEITURA MAS
+
+    readBuffer(tx, buffer, MAX_PIPE_NAME * 2);
+    strncpy(bufferRequest, buffer, MAX_PIPE_NAME);
+    strncpy(bufferResponse, buffer + MAX_PIPE_NAME, MAX_PIPE_NAME);
+
+    addToQueue(globalQueue, bufferRequest, bufferResponse);
+    activeClients++;
+    pthread_cond_signal(&cond);
+
+    free(bufferRequest);
+    free(bufferResponse);
+    free(buffer);
+    
+    //TODO: Write new client to the producer-consumer buffer
+  }
+
+}
+
+
 void* execute_client(void* args) {
 
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGUSR1);
+  if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0) {
+    perror("pthread_sigmask failed");
+    exit(EXIT_FAILURE);
+  }
   int *thread_id = (int*)args;
 
   while (1) {
@@ -87,7 +160,6 @@ void* execute_client(void* args) {
           memcpy(&num_cols, ptr, sizeof(size_t));
           free(buffer);
 
-          //printf("CREATE %u %ld %ld\n", event_id, num_rows, num_cols);
           status = ems_create(event_id, num_rows, num_cols);
 
           buffer = malloc(sizeof(int));
@@ -131,12 +203,6 @@ void* execute_client(void* args) {
           }
           free(buffer);
 
-          /*
-          printf("Reservas do evento: %u\n", event_id);
-          for (int i = 0; i < (int)num_seats; i++) {
-            printf("Lugar:(%ld %ld)\n", xs[i], ys[i]);
-          }
-          */
           status = ems_reserve(event_id, num_seats, xs, ys);
           buffer = malloc(sizeof(int));
           if (buffer == NULL) {
@@ -198,7 +264,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  char *SERVER_FIFO = argv[1];
+  SERVER_FIFO = argv[1];
 
   // remove pipe if it does exist
   if (unlink(SERVER_FIFO) != 0 && errno != ENOENT) {
@@ -211,9 +277,14 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
+  printf("PID do processo atual: %d\n", getpid());
+  if (signal(SIGUSR1, sigusr1_handler) == SIG_ERR) {
+    perror("Falha ao configurar o tratador para SIGUSR1");
+    exit(EXIT_FAILURE);
+  }
 
   globalQueue = initializeQueue();
-  
+
   if (pthread_mutex_lock(&mutex) != 0) {
     exit(EXIT_FAILURE);
   }
@@ -232,48 +303,16 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
+  pthread_t thread_receive_client;
+  pthread_create(&thread_receive_client, NULL, receive_client, NULL);
+
   while (1) {
-
-    char *buffer = malloc(sizeof(char) * (MAX_PIPE_NAME * 2));
-    if (buffer == NULL) {
-      perror("Error allocating memory.\n");
-      exit(EXIT_FAILURE);
+    while (show_details == 0) {
+      sleep(1);
     }
-    char *bufferRequest = malloc(sizeof(char) * MAX_PIPE_NAME);
-    if (bufferRequest == NULL) {
-      perror("Error allocating memory.\n");
-      exit(EXIT_FAILURE);
-    }
-    char *bufferResponse = malloc(sizeof(char) * MAX_PIPE_NAME);
-    if (bufferResponse == NULL) {
-      perror("Error allocating memory.\n");
-      exit(EXIT_FAILURE);
-    }
-
-    char character;
-    int tx = open(SERVER_FIFO, O_RDONLY);
-    printf("entrou cliente\n");
-    read(tx, &character, sizeof(char));
-
-    //VERIFICAÇÕES
-    //PARA VER SE PODEMOS INICIALIZAR SESSÃO
-    //EM CASO AFIRMATIVO INICILIZAR O SERVER, EM CASO NEGATIVO FAZER A LEITURA MAS
-
-    readBuffer(tx, buffer, MAX_PIPE_NAME * 2);
-    strncpy(bufferRequest, buffer, MAX_PIPE_NAME);
-    strncpy(bufferResponse, buffer + MAX_PIPE_NAME, MAX_PIPE_NAME);
-
-    addToQueue(globalQueue, bufferRequest, bufferResponse);
-    activeClients++;
-    pthread_cond_signal(&cond);
-
-    free(bufferRequest);
-    free(bufferResponse);
-    free(buffer);
-    
-    //TODO: Write new client to the producer-consumer buffer
+    show_events();
+    show_details = 0;
   }
-
   //TODO: Close Server
 
   ems_terminate();
