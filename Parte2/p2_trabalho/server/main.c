@@ -20,12 +20,14 @@
 
 char *SERVER_FIFO;
 pthread_t threads[MAX_SESSION_COUNT];
-int activeClients = 0;
 int show_details = 0;
 
 Queue *globalQueue;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+
+pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
+pthread_mutex_t queueMutex = PTHREAD_MUTEX_INITIALIZER;
 
 
 void sigusr1_handler() {
@@ -64,9 +66,12 @@ void *receive_client() {
     }
 
     char character;
+    char *bufferChar = malloc(sizeof(char));
     int tx = open(SERVER_FIFO, O_RDONLY);
     printf("entrou cliente\n");
-    read(tx, &character, sizeof(char));
+    readBuffer(tx, bufferChar, sizeof(char));
+    memcpy(&character, bufferChar, sizeof(char));
+    free(bufferChar);
 
     //VERIFICAÇÕES
     //PARA VER SE PODEMOS INICIALIZAR SESSÃO
@@ -76,15 +81,15 @@ void *receive_client() {
     strncpy(bufferRequest, buffer, MAX_PIPE_NAME);
     strncpy(bufferResponse, buffer + MAX_PIPE_NAME, MAX_PIPE_NAME);
 
+    pthread_mutex_lock(&queueMutex);
     addToQueue(globalQueue, bufferRequest, bufferResponse);
-    activeClients++;
+    pthread_mutex_unlock(&queueMutex);
     pthread_cond_signal(&cond);
 
     free(bufferRequest);
     free(bufferResponse);
     free(buffer);
     
-    //TODO: Write new client to the producer-consumer buffer
   }
 
 }
@@ -102,14 +107,19 @@ void* execute_client(void* args) {
   int *thread_id = (int*)args;
 
   while (1) {
+    pthread_mutex_lock(&mutex);
     
-    if (activeClients < MAX_SESSION_COUNT) {
+    pthread_mutex_lock(&queueMutex);
+    Node *aux = globalQueue->head;
+    pthread_mutex_unlock(&queueMutex);
+    if (aux == NULL) {
       pthread_cond_wait(&cond, &mutex);
     }
     printf("Cliente ligou-se à thread %d\n", *thread_id);
 
     int flag = 1;
 
+    pthread_mutex_lock(&queueMutex);
     Node *head = getHeadQueue(globalQueue);
     char requestPipe[MAX_PIPE_NAME];
     strcpy(requestPipe, head->requestPipe);
@@ -117,28 +127,37 @@ void* execute_client(void* args) {
     strcpy(responsePipe, head->responsePipe);
 
     removeHeadQueue(globalQueue);
+    pthread_mutex_unlock(&queueMutex);
 
     if (pthread_mutex_unlock(&mutex) != 0) {
       exit(EXIT_FAILURE);
     }
     unsigned int event_id;
     size_t num_rows, num_cols, num_seats, xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
-    char ch, *buffer, *ptr;
+    char ch, *buffer, *ptr, *bufferChar;
     int status;
     int fdReq = open(requestPipe, O_RDONLY);
     int fdResp = open(responsePipe, O_WRONLY);
 
+    size_t size_event_id = sizeof(unsigned int);
+    size_t size_num_seats = sizeof(size_t);
+    size_t size_reservation_seat = sizeof(size_t);
+    size_t size_xs = sizeof(size_t) * MAX_RESERVATION_SIZE;
+    size_t size_ys = sizeof(size_t) * MAX_RESERVATION_SIZE;
+    size_t total_size = size_event_id + size_num_seats + size_xs + size_ys;
+
     buffer = malloc(sizeof(int));
     memcpy(buffer, &(*thread_id), sizeof(int));
-    write(fdResp, buffer, sizeof(int));
+    writeFile(fdResp, buffer, sizeof(int));
     free(buffer);
 
     while (flag) {
+      
+      bufferChar = malloc(sizeof(char));
+      readBuffer(fdReq, bufferChar, sizeof(char));
+      memcpy(&ch, bufferChar, sizeof(char));
+      free(bufferChar);
 
-      if (read(fdReq, &ch, 1) != 1) {
-        perror("Error reading char.\n");
-        exit(EXIT_FAILURE);
-      }
       switch (ch) {
         case '2':
 
@@ -146,7 +165,6 @@ void* execute_client(void* args) {
           close(fdReq);
           close(fdResp);
           flag = 0;
-          activeClients--;
           break;
         case '3':
 
@@ -178,14 +196,6 @@ void* execute_client(void* args) {
 
           break;
         case '4':
-
-          size_t size_event_id = sizeof(unsigned int);
-          size_t size_num_seats = sizeof(size_t);
-          size_t size_reservation_seat = sizeof(size_t);
-          size_t size_xs = sizeof(size_t) * MAX_RESERVATION_SIZE;
-          size_t size_ys = sizeof(size_t) * MAX_RESERVATION_SIZE;
-
-          size_t total_size = size_event_id + size_num_seats + size_xs + size_ys;
 
           buffer = malloc(total_size);
           if (buffer == NULL) {
@@ -290,18 +300,16 @@ int main(int argc, char* argv[]) {
 
   globalQueue = initializeQueue();
 
+
+  int thread_ids[MAX_SESSION_COUNT];
+
   if (pthread_mutex_lock(&mutex) != 0) {
     exit(EXIT_FAILURE);
   }
 
-  int thread_ids[MAX_SESSION_COUNT];
-
   for (int i = 0; i < MAX_SESSION_COUNT; i++) {
     thread_ids[i] = i;
     pthread_create(&threads[i], NULL, execute_client, &thread_ids[i]);
-    if (pthread_mutex_lock(&mutex) != 0) {
-      exit(EXIT_FAILURE);
-    }
   }
 
   if (pthread_mutex_unlock(&mutex) != 0) {
@@ -318,7 +326,16 @@ int main(int argc, char* argv[]) {
     show_events();
     show_details = 0;
   }
-  //TODO: Close Server
 
+
+  pthread_mutex_destroy(&mutex);
+  pthread_cond_destroy(&cond);
+
+  freeQueue(globalQueue);
+
+  if (unlink(SERVER_FIFO) != 0 && errno != ENOENT) {
+    fprintf(stderr, "[ERR]: unlink(%s) failed: %s\n", SERVER_FIFO, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
   ems_terminate();
 }

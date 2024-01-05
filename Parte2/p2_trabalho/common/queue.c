@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+
 Queue* initializeQueue() {
     Queue* q = (Queue*) malloc(sizeof(Queue));
     if (!q) {
@@ -21,7 +22,6 @@ int isEmptyQueue(Queue* q) {
 void addToQueue(Queue* q, const char* bufferRequest, const char* bufferResponse) {
     Node* newNode = (Node*) malloc(sizeof(Node));
     if (!newNode) {
-        // Tratamento de erro: falha na alocação de memória
         return;
     }
     strcpy(newNode->requestPipe, bufferRequest);
@@ -40,7 +40,6 @@ void addToQueue(Queue* q, const char* bufferRequest, const char* bufferResponse)
 
 void removeHeadQueue(Queue* q) {
     if (isEmptyQueue(q)) {
-        //tratar erro
         return;
     }
     
@@ -56,9 +55,23 @@ void removeHeadQueue(Queue* q) {
 
 Node* getHeadQueue(Queue* q) {
     if (isEmptyQueue(q)) {
-        // Tratamento de erro: fila vazia
         return NULL;
     }
     
     return q->head;
+}
+
+void freeQueue(Queue* q) {
+    if (!q) {
+        return;
+    }
+
+    Node* current = q->head;
+    while (current != NULL) {
+        Node* temp = current;
+        current = current->next;
+        free(temp);
+    }
+
+    free(q);
 }

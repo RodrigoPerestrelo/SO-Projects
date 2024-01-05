@@ -201,6 +201,7 @@ int ems_show(int out_fd, unsigned int event_id) {
   for (size_t i = 1; i <= event->rows; i++) {
     for (size_t j = 1; j <= event->cols; j++) {
       char buffer[16];
+      printf("%u\n", event->data[seat_index(event, i, j)]);
       sprintf(buffer, "%u", event->data[seat_index(event, i, j)]);
 
       if (print_str(out_fd, buffer)) {

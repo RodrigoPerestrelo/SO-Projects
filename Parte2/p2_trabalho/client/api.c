@@ -25,6 +25,8 @@ int session_id;
 
 int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const* server_pipe_path) {
   
+  char *buffer;
+
   // remove pipe if it does exist
   if (unlink(req_pipe_path) != 0 && errno != ENOENT) {
     fprintf(stderr, "[ERR]: unlink(%s) failed: %s\n", req_pipe_path, strerror(errno));
@@ -59,12 +61,12 @@ int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const*
   }
 
   char ch = '1';
-  if (write(tx, &ch, 1) != 1) {
-    perror("Error writing char.\n");
-    exit(EXIT_FAILURE);
-  }
+  buffer = malloc(sizeof(char));
+  memcpy(buffer, &ch, sizeof(char));
+  writeFile(tx, buffer, sizeof(char));
+  free(buffer);
 
-  char *buffer = malloc(sizeof(char) * MAX_PIPE_NAME * 2);
+  buffer = malloc(sizeof(char) * MAX_PIPE_NAME * 2);
   memset(buffer, '\0', MAX_PIPE_NAME * 2);
   strncpy(buffer, request_pipe, MAX_PIPE_NAME);
   strncpy(buffer + MAX_PIPE_NAME, response_pipe, MAX_PIPE_NAME);
@@ -92,20 +94,22 @@ int ems_setup(char const* req_pipe_path, char const* resp_pipe_path, char const*
   }
 
   buffer = malloc(sizeof(int));
-  read(fd_resp_pipe, buffer, sizeof(int));
+  readBuffer(fd_resp_pipe, buffer, sizeof(int));
   memcpy(&session_id, buffer, sizeof(int));
   free(buffer);
-
+  
   return 0;
 }
 
 int ems_quit(void) { 
 
+  char *buffer;
   char ch = '2';
-  if (write(fd_req_pipe, &ch, 1) != 1) {
-    perror("Error writing char.\n");
-    exit(EXIT_FAILURE);
-  }
+  buffer = malloc(sizeof(char));
+  memcpy(buffer, &ch, sizeof(char));
+  writeFile(fd_req_pipe, buffer, sizeof(char));
+  free(buffer);
+
 
   //TODO: close pipes
   if (close(fd_req_pipe) == -1) {
@@ -128,10 +132,10 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
 
   char ch = '3';
 
-  if (write(fd_req_pipe, &ch, 1) != 1) {
-    perror("Error writing char.\n");
-    exit(EXIT_FAILURE);
-  }
+  buffer = malloc(sizeof(char));
+  memcpy(buffer, &ch, sizeof(char));
+  writeFile(fd_req_pipe, buffer, sizeof(char));
+  free(buffer);
 
   buffer = malloc(sizeof(unsigned int) + (sizeof(size_t) * 2));
   if (buffer == NULL) {
@@ -139,11 +143,11 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols) {
     exit(EXIT_FAILURE);
   }
   ptr = buffer;
-  memcpy(ptr, &event_id, sizeof(sizeof(unsigned int)));
+  memcpy(ptr, &event_id, sizeof(unsigned int));
   ptr += sizeof(unsigned int);
-  memcpy(ptr, &num_rows, sizeof(sizeof(size_t)));
+  memcpy(ptr, &num_rows, sizeof(size_t));
   ptr += sizeof(size_t);
-  memcpy(ptr, &num_cols, sizeof(sizeof(size_t)));
+  memcpy(ptr, &num_cols, sizeof(size_t));
 
   writeFile(fd_req_pipe, buffer, sizeof(unsigned int) + (sizeof(size_t) * 2));
   free(buffer);
@@ -166,10 +170,10 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
   char *buffer, *ptr;
   char ch = '4';
 
-  if (write(fd_req_pipe, &ch, 1) != 1) {
-    perror("Error writing char.\n");
-    exit(EXIT_FAILURE);
-  }
+  buffer = malloc(sizeof(char));
+  memcpy(buffer, &ch, sizeof(char));
+  writeFile(fd_req_pipe, buffer, sizeof(char));
+  free(buffer);
 
   size_t size_event_id = sizeof(unsigned int);
   size_t size_num_seats = sizeof(size_t);
@@ -220,10 +224,10 @@ int ems_show(int out_fd, unsigned int event_id) {
   size_t num_rows, num_cols, num_seats;
   char ch = '5';
 
-  if (write(fd_req_pipe, &ch, 1) != 1) {
-    perror("Error writing char.\n");
-    exit(EXIT_FAILURE);
-  }
+  buffer = malloc(sizeof(char));
+  memcpy(buffer, &ch, sizeof(char));
+  writeFile(fd_req_pipe, buffer, sizeof(char));
+  free(buffer);
 
   buffer = malloc(sizeof(unsigned int) + sizeof(int));
   if (buffer == NULL) {
@@ -294,7 +298,6 @@ int ems_show(int out_fd, unsigned int event_id) {
   }
   *ptr = '\n';
   ptr++;
-  *ptr = '\0';
   writeFile(out_fd, buffer, (sizeof(char) * num_seats * 2) + 1);
   free(buffer);
 
@@ -309,11 +312,10 @@ int ems_list_events(int out_fd) {
   size_t num_events;
   char ch = '6';
 
-  if (write(fd_req_pipe, &ch, 1) != 1) {
-    perror("Error writing char.\n");
-    exit(EXIT_FAILURE);
-  }
-
+  buffer = malloc(sizeof(char));
+  memcpy(buffer, &ch, sizeof(char));
+  writeFile(fd_req_pipe, buffer, sizeof(char));
+  free(buffer);
 
   buffer = malloc(sizeof(int));
   if (buffer == NULL) {
@@ -360,21 +362,25 @@ int ems_list_events(int out_fd) {
     }
     free(buffer);
 
-    buffer = malloc((sizeof(char) * 9 * num_events));
+    buffer = malloc(20 * num_events * sizeof(char));
     ptr = buffer;
-    buffer[0] = '\0';
+    memset(buffer, '\0', 20 * num_events * sizeof(char));
+    int numCharacters = 0;
+
+    // 8 caracteres vindos do Event: \n" e outros 12 de tamanho máx que um event_id pode ter
+    // não é dito por isso colocamos que um event_id tem no máximo 12 bytes de tamanho
     for (size_t i = 0; i < num_events; i++) {
       strcat(buffer, "Event: ");
+      numCharacters+= 7;
       ptr += 7;
-      int written = snprintf(ptr, 2, "%u", list_ids[i]);
+      int written = snprintf(ptr, 12, "%u\n", list_ids[i]);
+      numCharacters += written;
       ptr += written;
-      strcat(ptr, "\n");
-      ptr++;
     }
-    strcat(ptr, "\0");
-    writeFile(out_fd, buffer, (sizeof(char) * 9 * num_events));
+
+    writeFile(out_fd, buffer, sizeof(char) * (size_t)numCharacters);
+    free(buffer);
   }
-  
-  //TODO: send list request to the server (through the request pipe) and wait for the response (through the response pipe)
+
   return 0;
 }
