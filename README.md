@@ -3,7 +3,7 @@ Operating Systems Projects
 
 Problem descriptions in Portuguese
 
-Projects done with: https://github.com/crispantea
+The projects were done in collaboration with: https://github.com/crispantea
 
 ## Final grade:
 19.91/20
