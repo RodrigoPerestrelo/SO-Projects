@@ -1,5 +1,5 @@
 # SO-Projects
-Operative Systems Projects
+Operating Systems Projects
 
 Problem descriptions in Portuguese
 
